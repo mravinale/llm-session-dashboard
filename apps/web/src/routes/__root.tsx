@@ -25,7 +25,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Claude Session Dashboard' },
+      { title: 'LLM Session Dashboard' },
       { name: 'theme-color', content: '#141413' },
       { name: 'description', content: 'Local observability dashboard for Claude Code sessions' },
     ],
