@@ -5,13 +5,22 @@ import { readDiskCache, writeDiskCache } from '../cache/disk-cache'
 import { StatsCacheSchema, type StatsCache } from './types'
 import type { SessionDetail, SessionSummary } from './types'
 import { scanAllSessionsWithPaths, type SessionSummaryWithPath } from '@/lib/scanner/session-scanner'
-import { parseDetail } from '@/lib/parsers/session-parser'
+import { getAdapter } from '@/lib/adapters/adapter'
+import type { ProviderId } from '@/lib/adapters/provider-registry'
 
 let cachedStats: { mtimeMs: number; data: StatsCache } | null = null
 
 /** Cache for the merged (stats + recent sessions) result to avoid re-scanning on every request */
 let mergedCache: { mtimeMs: number; mergedAt: number; data: StatsCache } | null = null
 const MERGE_STALENESS_MS = 60_000 // re-scan at most every 60 seconds
+
+/**
+ * Cache for the computed Codex stats portion. Codex has no precomputed
+ * stats-cache.json, so its history is computed by scanning sessions; this
+ * short-lived cache avoids re-scanning Codex on every request (mirrors
+ * `mergedCache`). `null` data means "computed and found no Codex contribution".
+ */
+let codexStatsCache: { computedAt: number; data: StatsCache | null } | null = null
 
 function getTodayDateString(): string {
   return new Date().toISOString().split('T')[0]
@@ -37,14 +46,16 @@ export async function parseStats(): Promise<StatsCache | null> {
 
   // Tier 1: in-memory mtime cache
   if (cachedStats && cachedStats.mtimeMs === stat.mtimeMs) {
-    return maybeEnrichWithRecentSessions(cachedStats.data, stat.mtimeMs)
+    const enriched = await maybeEnrichWithRecentSessions(cachedStats.data, stat.mtimeMs)
+    return combineWithCodexStats(enriched)
   }
 
   // Tier 2: disk cache
   const diskResult = readDiskCache('stats', stat.mtimeMs, StatsCacheSchema)
   if (diskResult) {
     cachedStats = { mtimeMs: stat.mtimeMs, data: diskResult }
-    return maybeEnrichWithRecentSessions(diskResult, stat.mtimeMs)
+    const enriched = await maybeEnrichWithRecentSessions(diskResult, stat.mtimeMs)
+    return combineWithCodexStats(enriched)
   }
 
   // Tier 3: full parse from source
@@ -55,12 +66,59 @@ export async function parseStats(): Promise<StatsCache | null> {
 
     writeDiskCache('stats', statsPath, stat.mtimeMs, result)
     cachedStats = { mtimeMs: stat.mtimeMs, data: result }
-    return maybeEnrichWithRecentSessions(result, stat.mtimeMs)
+    const enriched = await maybeEnrichWithRecentSessions(result, stat.mtimeMs)
+    return combineWithCodexStats(enriched)
   } catch {
     // If the stats file is malformed or fails validation, fall back to computing
     const computed = await computeStatsFromSessions()
     return computed
   }
+}
+
+/**
+ * The Claude `stats-cache.json` is Claude-only, and `mergeRecentSessions()` only
+ * folds in sessions newer than its `lastComputedDate`. To guarantee the FULL
+ * Codex history (Codex has no stats-cache, so older Codex sessions would
+ * otherwise be missing), compute the Codex-only portion from sessions and
+ * combine it with the Claude cache via the existing `mergeStatsCaches()` helper
+ * (which sums per-date / per-model / per-hour and unions model ids).
+ *
+ * No-op safety: when there is no Codex data (no `~/.codex`, or zero Codex
+ * sessions), `computeStatsFromSessions('codex')` aggregates an empty set into a
+ * stats object with empty `dailyActivity` / `dailyModelTokens` / `modelUsage` /
+ * `hourCounts` and `totalSessions: 0` / `totalMessages: 0`. Merging that into
+ * the Claude cache adds zero to every sum, so the Claude output is unchanged.
+ */
+async function combineWithCodexStats(claudeStats: StatsCache): Promise<StatsCache> {
+  try {
+    const codexStats = await getCodexStatsCached()
+    if (!codexStats || !hasCodexContribution(codexStats)) {
+      return claudeStats
+    }
+    const merged = mergeStatsCaches([claudeStats, codexStats])
+    return merged ?? claudeStats
+  } catch {
+    // Never let Codex computation break Claude stats — fall back to Claude only.
+    return claudeStats
+  }
+}
+
+/**
+ * Compute the Codex-only stats portion, served from a 60-second in-memory cache
+ * to avoid re-scanning Codex sessions on every request (R3 performance).
+ */
+async function getCodexStatsCached(): Promise<StatsCache | null> {
+  if (codexStatsCache && Date.now() - codexStatsCache.computedAt < MERGE_STALENESS_MS) {
+    return codexStatsCache.data
+  }
+  const data = await computeStatsFromSessions('codex')
+  codexStatsCache = { computedAt: Date.now(), data }
+  return data
+}
+
+/** True when a computed Codex stats cache carries any session contribution. */
+function hasCodexContribution(stats: StatsCache): boolean {
+  return stats.totalSessions > 0
 }
 
 /**
@@ -172,9 +230,12 @@ async function parseDetailsInBatches(
     const details = await Promise.all(
       batch.map(async (s) => {
         try {
+          // Route per-session detail parsing through the provider's adapter
+          // (P6/DIP). The summary carries `provider`, so Codex rollouts are
+          // parsed by the Codex adapter and Claude sessions by the Claude one.
           return {
             sessionId: s.sessionId,
-            detail: await parseDetail(
+            detail: await getAdapter(s.provider).parseDetail(
               s.filePath, s.sessionId, s.projectPath, s.projectName,
             ),
           }
@@ -480,11 +541,21 @@ export function mergeStatsCaches(caches: StatsCache[]): StatsCache | null {
 
 /**
  * Compute stats from scratch by scanning all sessions and parsing full details.
- * Used as a fallback when ~/.claude/stats-cache.json does not exist.
+ * Used as a fallback when ~/.claude/stats-cache.json does not exist, and to
+ * compute the FULL history for a provider that has no precomputed stats cache.
+ *
+ * When `provider` is given, only sessions from that provider are aggregated
+ * (e.g. `'codex'` to compute the Codex-only portion that the Claude
+ * stats-cache.json does not cover). When omitted, all providers are included.
  */
-async function computeStatsFromSessions(): Promise<StatsCache | null> {
+async function computeStatsFromSessions(
+  provider?: ProviderId,
+): Promise<StatsCache | null> {
   try {
-    const summaries = await scanAllSessionsWithPaths()
+    const allSummaries = await scanAllSessionsWithPaths()
+    const summaries = provider
+      ? allSummaries.filter((s) => s.provider === provider)
+      : allSummaries
 
     // Parse full details for token and tool data
     const detailMap = await parseDetailsInBatches(summaries)
