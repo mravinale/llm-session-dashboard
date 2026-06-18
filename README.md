@@ -1,14 +1,5 @@
 # LLM Session Dashboard
 
-[![CI](https://github.com/mravinale/llm-session-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/mravinale/llm-session-dashboard/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/mravinale/llm-session-dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/mravinale/llm-session-dashboard/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/mravinale/llm-session-dashboard)](https://securityscorecards.dev/viewer/?uri=github.com/mravinale/llm-session-dashboard)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12094/badge)](https://www.bestpractices.dev/projects/12094)
-[![codecov](https://codecov.io/gh/mravinale/llm-session-dashboard/graph/badge.svg)](https://codecov.io/gh/mravinale/llm-session-dashboard)
-[![Socket](https://img.shields.io/badge/Socket-secured-green?logo=socket.dev)](https://socket.dev/npm/package/llm-session-dashboard)
-[![npm version](https://img.shields.io/npm/v/llm-session-dashboard)](https://www.npmjs.com/package/llm-session-dashboard)
-[![npm downloads](https://img.shields.io/npm/dm/llm-session-dashboard)](https://www.npmjs.com/package/llm-session-dashboard)
-[![Node.js](https://img.shields.io/node/v/llm-session-dashboard)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 See exactly where your context window goes. Trace every agent delegation. Understand how your **Claude Code** and **OpenAI Codex** sessions actually execute — all from your local `~/.claude` and `~/.codex`, no data sent anywhere.
