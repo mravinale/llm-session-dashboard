@@ -31,13 +31,18 @@ export interface ProviderDescriptor {
  *
  * Codex's badge color is violet to match its violet→indigo cloud icon, and to
  * stay distinct from the platform `SourceBadge` colors (gray/blue/amber) and
- * the Claude brand-terracotta badge.
+ * the Claude badge.
+ *
+ * The Claude badge uses explicit Anthropic terracotta hexes (not the `brand-*`
+ * token) so it stays warm and aligned with the Anthropic chart ramp. It is
+ * intentionally decoupled from the app brand, which is now azure blue
+ * (tierone.studio) since the app tracks multiple providers.
  */
 export const PROVIDERS = [
   {
     id: 'claude',
     label: 'Claude',
-    badgeClass: 'bg-brand-700/30 text-brand-300 border border-brand-700/40',
+    badgeClass: 'bg-[#a8512e]/30 text-[#f0b8a0] border border-[#a8512e]/40',
     resumeCommand: (sessionId: string) => `claude --resume ${sessionId}`,
   },
   {

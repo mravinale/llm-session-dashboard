@@ -160,8 +160,8 @@ export function ContextWindowPanel({ contextWindow, tokens }: Props) {
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="contextGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#d97757" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#d97757" stopOpacity={0.05} />
+                  <stop offset="0%" stopColor="#2b7cf6" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#2b7cf6" stopOpacity={0.05} />
                 </linearGradient>
               </defs>
               <YAxis
@@ -193,7 +193,7 @@ export function ContextWindowPanel({ contextWindow, tokens }: Props) {
               <Area
                 type="stepAfter"
                 dataKey="context"
-                stroke="#d97757"
+                stroke="#2b7cf6"
                 fill="url(#contextGrad)"
                 strokeWidth={1.5}
                 dot={false}

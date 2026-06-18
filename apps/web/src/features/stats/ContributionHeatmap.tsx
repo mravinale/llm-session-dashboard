@@ -6,10 +6,10 @@ import { formatTokenCount } from '@/lib/utils/format'
 
 const INTENSITY_COLORS = [
   'var(--color-gray-800)', // Level 0: warm gray-800 (no activity)
-  '#3d2a1e', // Level 1: dark terracotta
-  '#a8512eb3', // Level 2: brand-700 at ~70% opacity
-  '#d97757cc', // Level 3: brand-500 at ~80% opacity
-  '#e09070', // Level 4: brand-400 (most intense)
+  '#13243f', // Level 1: dark azure
+  '#154aa8b3', // Level 2: brand-700 at ~70% opacity
+  '#2b7cf6cc', // Level 3: brand-500 at ~80% opacity
+  '#5b93f2', // Level 4: brand-400 (most intense)
 ] as const
 
 const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''] as const
