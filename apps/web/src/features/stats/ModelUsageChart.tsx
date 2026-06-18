@@ -8,8 +8,7 @@ import {
 } from 'recharts'
 import type { ModelUsage } from '@/lib/parsers/types'
 import { formatTokenCount } from '@/lib/utils/format'
-
-const COLORS = ['#d97757', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#b07cc5']
+import { getModelColorMap } from './model-colors'
 
 export function ModelUsageChart({ data }: { data: ModelUsage }) {
   const chartData = Object.entries(data).map(([model, usage]) => ({
@@ -21,6 +20,11 @@ export function ModelUsageChart({ data }: { data: ModelUsage }) {
 
   // Sort by total and take top models
   chartData.sort((a, b) => b.totalTokens - a.totalTokens)
+
+  // Provider-aware color per model (blue->violet for OpenAI, orange->red for
+  // Anthropic). Keyed by the normalized name shown in legend/slices so the same
+  // model gets the same color here and in the Token Trend chart.
+  const colorMap = getModelColorMap(chartData.map((d) => d.name))
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
@@ -40,8 +44,12 @@ export function ModelUsageChart({ data }: { data: ModelUsage }) {
               nameKey="name"
               strokeWidth={0}
             >
-              {chartData.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} opacity={0.8} />
+              {chartData.map((entry) => (
+                <Cell
+                  key={entry.fullName}
+                  fill={colorMap.get(entry.name)}
+                  opacity={0.8}
+                />
               ))}
             </Pie>
             <Tooltip

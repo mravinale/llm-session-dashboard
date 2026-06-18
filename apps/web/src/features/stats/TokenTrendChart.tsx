@@ -11,8 +11,7 @@ import {
 import { format, parseISO, startOfISOWeek } from 'date-fns'
 import type { DailyModelTokens } from '@/lib/parsers/types'
 import { formatTokenCount } from '@/lib/utils/format'
-
-const COLORS = ['#d97757', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#b07cc5']
+import { getModelColorMap } from './model-colors'
 
 type Granularity = 'daily' | 'weekly'
 
@@ -177,6 +176,11 @@ export function TokenTrendChart({ data }: { data: DailyModelTokens[] }) {
     return keys
   }, [topModels, hasOther])
 
+  // Provider-aware color per model key, shared with the Model Usage donut so a
+  // model gets the same color in both charts. Recharts derives the custom
+  // tooltip's `entry.color` from each Area's stroke/fill, so swatches match too.
+  const colorMap = useMemo(() => getModelColorMap(allModelKeys), [allModelKeys])
+
   const chartData = useMemo(() => {
     if (granularity === 'weekly') {
       return processWeekly(data, topModels, hasOther)
@@ -253,14 +257,14 @@ export function TokenTrendChart({ data }: { data: DailyModelTokens[] }) {
               tickFormatter={(value: number) => formatTokenCount(value)}
             />
             <Tooltip content={<CustomTooltip />} />
-            {allModelKeys.map((model, i) => (
+            {allModelKeys.map((model) => (
               <Area
                 key={model}
                 type="monotone"
                 dataKey={model}
                 stackId="1"
-                stroke={COLORS[i % COLORS.length]}
-                fill={COLORS[i % COLORS.length]}
+                stroke={colorMap.get(model)}
+                fill={colorMap.get(model)}
                 fillOpacity={0.6}
               />
             ))}

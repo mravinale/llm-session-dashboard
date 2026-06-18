@@ -13,6 +13,7 @@ vi.mock('@tanstack/react-router', () => ({
 describe('SessionCard', () => {
   const mockSession: SessionSummary = {
     sessionId: 'f656e46e-bfaa-4997-8b69-d2d955ea2bfc',
+    provider: 'claude',
     projectPath: '/Users/test/projects/my-app',
     projectName: 'my-app',
     branch: 'feature/test-branch',

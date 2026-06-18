@@ -2,15 +2,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { getProjectsDir, getProjectsDirFor, getDataSources, extractSessionId } from '../utils/claude-path'
 import type { DataSource } from '../utils/claude-path'
-import { scanProjects, scanProjectsFrom } from './project-scanner'
+import { scanProjectsFrom } from './project-scanner'
 import { isSessionActive } from './active-detector'
 import { parseSummary, parseOutputTokens } from '../parsers/session-parser'
 import type { SessionSummary } from '../parsers/types'
+import { getAdapters, type SessionSummaryWithPath } from '@/lib/adapters/adapter'
 
-/** Extended summary that includes the absolute JSONL file path (server-side only). */
-export interface SessionSummaryWithPath extends SessionSummary {
-  filePath: string
-}
+export type { SessionSummaryWithPath }
 
 // In-memory cache: sessionId -> { mtime, summary }
 const summaryCache = new Map<
@@ -19,64 +17,49 @@ const summaryCache = new Map<
 >()
 
 /**
- * Internal scanning logic that returns summaries with their file paths.
- * Used by both public APIs below.
+ * Internal scan: iterate every registered adapter (P5), enumerate its sources,
+ * and collect summaries with file paths. Results are deduplicated by
+ * `${provider}:${sessionId}` (keeping the newest `lastActiveAt`) and sorted
+ * newest-first.
+ *
+ * With only the Claude adapter registered (Phase 0), this produces the same
+ * output as the former single-source scan: the Claude adapter's primary-source
+ * scan reproduces the legacy behavior exactly (no source fields stamped).
  */
 async function scanSessionsInternal(): Promise<SessionSummaryWithPath[]> {
-  const projects = await scanProjects()
-  const summaries: SessionSummaryWithPath[] = []
+  const adapters = getAdapters()
+  const collected: SessionSummaryWithPath[] = []
 
-  for (const project of projects) {
-    for (const file of project.sessionFiles) {
-      const sessionId = extractSessionId(file)
-      const filePath = path.join(
-        getProjectsDir(),
-        project.dirName,
-        file,
-      )
-
-      const stat = await fs.promises.stat(filePath).catch(() => null)
-      if (!stat) continue
-
-      // Check cache
-      const cached = summaryCache.get(sessionId)
-      if (cached && cached.mtimeMs === stat.mtimeMs) {
-        // Refresh active status even for cached entries
-        const active = await isSessionActive(project.dirName, sessionId)
-        summaries.push({ ...cached.summary, isActive: active, filePath })
-        continue
-      }
-
-      // Parse summary from first/last lines
-      const summary = await parseSummary(
-        filePath,
-        sessionId,
-        project.decodedPath,
-        project.projectName,
-        stat.size,
-      )
-
-      if (summary) {
-        const active = await isSessionActive(project.dirName, sessionId)
-        summary.isActive = active
-        summary.outputTokens = await parseOutputTokens(filePath).catch(() => undefined)
-
-        summaryCache.set(sessionId, {
-          mtimeMs: stat.mtimeMs,
-          summary,
-        })
-        summaries.push({ ...summary, filePath })
-      }
+  for (const adapter of adapters) {
+    const sources = await adapter.getSources()
+    for (const source of sources) {
+      if (!source.available) continue
+      const summaries = await adapter.scanSummaries(source)
+      collected.push(...summaries)
     }
   }
 
-  // Sort by last active, newest first
-  summaries.sort(
+  // Deduplicate by provider-scoped session id, keeping the newest lastActiveAt.
+  const deduped = new Map<string, SessionSummaryWithPath>()
+  for (const summary of collected) {
+    const key = `${summary.provider}:${summary.sessionId}`
+    const existing = deduped.get(key)
+    if (
+      !existing ||
+      new Date(summary.lastActiveAt).getTime() >
+        new Date(existing.lastActiveAt).getTime()
+    ) {
+      deduped.set(key, summary)
+    }
+  }
+
+  const results = Array.from(deduped.values())
+  results.sort(
     (a, b) =>
       new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime(),
   )
 
-  return summaries
+  return results
 }
 
 /** Public API: returns SessionSummary[] without filePath -- used by server functions that serialize to client. */
@@ -97,8 +80,10 @@ export async function getActiveSessions(): Promise<SessionSummary[]> {
 }
 
 /**
- * Scan sessions from a single DataSource, setting sourceId and sourceLabel on each result.
- * For non-primary sources, passes projectsDirOverride to isSessionActive.
+ * Scan sessions from a single Claude DataSource, setting sourceId and
+ * sourceLabel on each result. Retained as the Claude per-source worker for the
+ * legacy multi-source path and its tests. For non-primary sources, passes
+ * projectsDirOverride to isSessionActive.
  */
 export async function scanSessionsFromSource(source: DataSource): Promise<SessionSummary[]> {
   const projects = await scanProjectsFrom(source)
@@ -156,8 +141,12 @@ export async function scanSessionsFromSource(source: DataSource): Promise<Sessio
 }
 
 /**
- * Scan sessions from all available DataSources, merging results sorted by lastActiveAt descending.
- * Deduplicates by sessionId, keeping the entry with the most recent lastActiveAt.
+ * Scan sessions from all available Claude DataSources, merging results sorted by
+ * lastActiveAt descending. Deduplicates by sessionId, keeping the entry with the
+ * most recent lastActiveAt.
+ *
+ * @deprecated Superseded by the adapter loop in `scanAllSessions()`. Retained
+ * for the existing test suite and for any direct Claude multi-source callers.
  */
 export async function scanAllSessionsMultiSource(): Promise<SessionSummary[]> {
   const sources = await getDataSources()

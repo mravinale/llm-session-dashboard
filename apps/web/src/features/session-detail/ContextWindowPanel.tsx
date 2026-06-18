@@ -160,8 +160,8 @@ export function ContextWindowPanel({ contextWindow, tokens }: Props) {
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="contextGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#d97757" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#d97757" stopOpacity={0.05} />
+                  <stop offset="0%" stopColor="#2b7cf6" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#2b7cf6" stopOpacity={0.05} />
                 </linearGradient>
               </defs>
               <YAxis
@@ -193,7 +193,7 @@ export function ContextWindowPanel({ contextWindow, tokens }: Props) {
               <Area
                 type="stepAfter"
                 dataKey="context"
-                stroke="#d97757"
+                stroke="#2b7cf6"
                 fill="url(#contextGrad)"
                 strokeWidth={1.5}
                 dot={false}
@@ -270,6 +270,17 @@ function TokenBreakdown({ tokens }: { tokens: TokenUsage }) {
   const items = [
     { label: 'Input', value: tokens.inputTokens, color: 'bg-brand-400' },
     { label: 'Output', value: tokens.outputTokens, color: 'bg-emerald-400' },
+    // Reasoning is Codex-only — shown only when present and non-zero, so Claude's
+    // display is unchanged (reasoningOutputTokens is undefined for Claude).
+    ...(tokens.reasoningOutputTokens
+      ? [
+          {
+            label: 'Reasoning',
+            value: tokens.reasoningOutputTokens,
+            color: 'bg-indigo-400',
+          },
+        ]
+      : []),
     { label: 'Cache Read', value: tokens.cacheReadInputTokens, color: 'bg-amber-400' },
     { label: 'Cache Create', value: tokens.cacheCreationInputTokens, color: 'bg-purple-400' },
   ]
@@ -311,6 +322,17 @@ function TokenFallback({ tokens }: { tokens: TokenUsage }) {
   const items = [
     { label: 'Input', value: tokens.inputTokens, color: 'text-brand-400' },
     { label: 'Output', value: tokens.outputTokens, color: 'text-emerald-400' },
+    // Reasoning is Codex-only — shown only when present and non-zero, so Claude's
+    // display is unchanged (reasoningOutputTokens is undefined for Claude).
+    ...(tokens.reasoningOutputTokens
+      ? [
+          {
+            label: 'Reasoning',
+            value: tokens.reasoningOutputTokens,
+            color: 'text-indigo-400',
+          },
+        ]
+      : []),
     { label: 'Cache Read', value: tokens.cacheReadInputTokens, color: 'text-amber-400' },
     { label: 'Cache Create', value: tokens.cacheCreationInputTokens, color: 'text-purple-400' },
   ]

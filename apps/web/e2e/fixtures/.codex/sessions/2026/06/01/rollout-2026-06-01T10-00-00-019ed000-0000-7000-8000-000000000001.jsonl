@@ -1,0 +1,16 @@
+{"timestamp":"2026-06-01T10:00:00.000Z","type":"session_meta","payload":{"id":"019ed000-0000-7000-8000-000000000001","timestamp":"2026-06-01T10:00:00.000Z","cwd":"/Users/dev/Repositories/Github/my-codex-app","originator":"codex_cli","cli_version":"0.137.0-alpha.4","source":"cli","model_provider":"openai","base_instructions":{"text":"You are Codex."}}}
+{"timestamp":"2026-06-01T10:00:00.100Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1","model_context_window":258400}}
+{"timestamp":"2026-06-01T10:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/Users/dev/Repositories/Github/my-codex-app","model":"gpt-5.4"}}
+{"timestamp":"2026-06-01T10:00:01.500Z","type":"event_msg","payload":{"type":"user_message","message":"Add a health-check endpoint to the API"}}
+{"timestamp":"2026-06-01T10:00:01.600Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Add a health-check endpoint to the API"}]}}
+{"timestamp":"2026-06-01T10:00:02.000Z","type":"response_item","payload":{"type":"reasoning","content":[{"type":"reasoning_text","text":"Let me look at the routes."}]}}
+{"timestamp":"2026-06-01T10:00:02.500Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"ls src/routes\"}","call_id":"call_a1"}}
+{"timestamp":"2026-06-01T10:00:02.900Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_a1","output":"health.ts\nindex.ts"}}
+{"timestamp":"2026-06-01T10:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1200,"cached_input_tokens":300,"output_tokens":80,"reasoning_output_tokens":40,"total_tokens":1280},"last_token_usage":{"input_tokens":1200,"cached_input_tokens":300,"output_tokens":80,"reasoning_output_tokens":40,"total_tokens":1280},"model_context_window":258400}}}
+{"timestamp":"2026-06-01T10:00:03.500Z","type":"turn_context","payload":{"turn_id":"turn-2","cwd":"/Users/dev/Repositories/Github/my-codex-app","model":"gpt-5.5"}}
+{"timestamp":"2026-06-01T10:00:04.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch","call_id":"call_a2"}}
+{"timestamp":"2026-06-01T10:00:04.400Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_a2","output":"applied"}}
+{"timestamp":"2026-06-01T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I added a /health endpoint that returns 200 OK."}]}}
+{"timestamp":"2026-06-01T10:00:05.500Z","type":"event_msg","payload":{"type":"agent_message","message":"I added a /health endpoint that returns 200 OK."}}
+{"timestamp":"2026-06-01T10:00:06.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":2600,"cached_input_tokens":900,"output_tokens":350,"reasoning_output_tokens":160,"total_tokens":2950},"last_token_usage":{"input_tokens":1400,"cached_input_tokens":600,"output_tokens":270,"reasoning_output_tokens":120,"total_tokens":1670},"model_context_window":258400}}}
+{"timestamp":"2026-06-01T10:00:06.500Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-2"}}

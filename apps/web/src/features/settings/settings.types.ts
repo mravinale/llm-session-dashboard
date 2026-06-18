@@ -11,9 +11,6 @@ export const ModelPricingOverrideSchema = z.object({
 
 export const SettingsSchema = z.object({
   version: z.literal(1),
-  subscriptionTier: z
-    .enum(['free', 'pro', 'max-5x', 'max-20x', 'teams', 'enterprise', 'api'])
-    .default('pro'),
   pricingOverrides: z
     .record(z.string(), ModelPricingOverrideSchema)
     .default({}),
@@ -34,7 +31,6 @@ export const SettingsSchema = z.object({
 
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>
 export type Settings = z.infer<typeof SettingsSchema>
-export type SubscriptionTierId = Settings['subscriptionTier']
 
 export interface ModelPricing {
   modelId: string
@@ -43,12 +39,6 @@ export interface ModelPricing {
   outputPerMTok: number
   cacheReadPerMTok: number
   cacheWritePerMTok: number
-}
-
-export interface SubscriptionTier {
-  id: SubscriptionTierId
-  displayName: string
-  monthlyUSD: number | null
 }
 
 // --- Constants ---
@@ -126,21 +116,64 @@ export const DEFAULT_PRICING: ModelPricing[] = [
     cacheReadPerMTok: 0.03,
     cacheWritePerMTok: 0.3,
   },
-]
-
-export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
-  { id: 'free', displayName: 'Free', monthlyUSD: 0 },
-  { id: 'pro', displayName: 'Pro', monthlyUSD: 20 },
-  { id: 'max-5x', displayName: 'Max 5x', monthlyUSD: 100 },
-  { id: 'max-20x', displayName: 'Max 20x', monthlyUSD: 200 },
-  { id: 'teams', displayName: 'Teams', monthlyUSD: 150 },
-  { id: 'enterprise', displayName: 'Enterprise', monthlyUSD: null },
-  { id: 'api', displayName: 'API Only', monthlyUSD: null },
+  // --- OpenAI / Codex models ---
+  // Estimated OpenAI/Codex pricing — verify against current OpenAI rates; users
+  // can override per-model in Settings. Based on the GPT-5 family API pricing
+  // structure (input $1.25/MTok, cached-input $0.125/MTok, output $10/MTok).
+  // OpenAI does NOT publish cache-WRITE pricing (no cache-creation concept), so
+  // cacheWritePerMTok is 0 for all OpenAI rows.
+  {
+    modelId: 'gpt-5.5',
+    displayName: 'GPT-5.5',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5-codex',
+    displayName: 'GPT-5 Codex',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5.4',
+    displayName: 'GPT-5.4',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5.3-codex',
+    displayName: 'GPT-5.3 Codex',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5.2-codex',
+    displayName: 'GPT-5.2 Codex',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5',
+    displayName: 'GPT-5',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
 ]
 
 export const DEFAULT_SETTINGS: Settings = {
   version: 1,
-  subscriptionTier: 'pro',
   pricingOverrides: {},
   dataSources: [],
 }

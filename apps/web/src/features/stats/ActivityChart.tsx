@@ -48,7 +48,7 @@ export function ActivityChart({ data }: { data: DailyActivity[] }) {
             <Bar
               dataKey="messageCount"
               name="Messages"
-              fill="#d97757"
+              fill="#2b7cf6"
               radius={[2, 2, 0, 0]}
             />
             <Bar

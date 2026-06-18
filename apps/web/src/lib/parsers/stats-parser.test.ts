@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { StatsCache } from './types'
+import type { SessionSummaryWithPath } from '@/lib/scanner/session-scanner'
 
 // vi.mock is hoisted — define all mocks inline, no variable references
 
@@ -25,8 +26,11 @@ vi.mock('@/lib/scanner/session-scanner', () => ({
   scanAllSessionsWithPaths: vi.fn(),
 }))
 
-vi.mock('@/lib/parsers/session-parser', () => ({
-  parseDetail: vi.fn(),
+// Per-session detail parsing now flows through the provider adapter (P6/DIP),
+// so the stats compute path is tested at the adapter seam. Each provider's
+// adapter exposes its own `parseDetail`; `getAdapter(provider)` dispatches.
+vi.mock('@/lib/adapters/adapter', () => ({
+  getAdapter: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------
@@ -56,6 +60,75 @@ function makeStatsCache(overrides: Partial<StatsCache> = {}): StatsCache {
 
 function makeStat(mtimeMs = 1_000_000) {
   return { mtimeMs }
+}
+
+type ParseDetailFn = (
+  filePath: string,
+  sessionId: string,
+  projectPath: string,
+  projectName: string,
+) => Promise<unknown>
+
+/**
+ * Wire `getAdapter(provider)` to return a stub adapter whose `parseDetail` is
+ * the supplied per-provider mock. Mirrors the real registry: each provider has
+ * its own adapter, and the stats compute path dispatches by `session.provider`.
+ * Returns the per-provider `parseDetail` mocks so a test can assert on dispatch.
+ */
+async function mockAdapters(
+  parseDetailByProvider: Partial<Record<'claude' | 'codex', ParseDetailFn>>,
+): Promise<Record<string, ReturnType<typeof vi.fn>>> {
+  const { getAdapter } = await import('@/lib/adapters/adapter')
+  const mocks: Record<string, ReturnType<typeof vi.fn>> = {}
+  for (const [provider, fn] of Object.entries(parseDetailByProvider)) {
+    mocks[provider] = vi.fn(fn)
+  }
+  vi.mocked(getAdapter).mockImplementation((provider: string) => {
+    const parseDetail = mocks[provider]
+    if (!parseDetail) {
+      throw new Error(`No adapter registered for provider: ${provider}`)
+    }
+    return { provider, parseDetail } as never
+  })
+  return mocks
+}
+
+/** A fully-formed normalized SessionDetail for a given provider/model. */
+function makeDetail(overrides: {
+  sessionId: string
+  provider: 'claude' | 'codex'
+  model: string
+  turnCount: number
+  toolFrequency?: Record<string, number>
+  tokensByModel?: Record<
+    string,
+    { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number }
+  >
+}) {
+  const turns = Array.from({ length: overrides.turnCount }, (_, i) => ({
+    uuid: `t${i}`,
+    type: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+    timestamp: new Date().toISOString(),
+    toolCalls: [],
+  }))
+  return {
+    sessionId: overrides.sessionId,
+    provider: overrides.provider,
+    projectPath: '/proj',
+    projectName: 'proj',
+    branch: null,
+    isInteractive: true,
+    turns,
+    totalTokens: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+    tokensByModel: overrides.tokensByModel ?? {},
+    toolFrequency: overrides.toolFrequency ?? {},
+    errors: [],
+    models: [overrides.model],
+    agents: [],
+    skills: [],
+    tasks: [],
+    contextWindow: null,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +296,6 @@ describe('parseStats', () => {
       const { promises: fsMock } = await import('node:fs')
       const { readDiskCache } = await import('@/lib/cache/disk-cache')
       const { scanAllSessionsWithPaths } = await import('@/lib/scanner/session-scanner')
-      const { parseDetail } = await import('@/lib/parsers/session-parser')
       const parseStats = await freshParseStats()
 
       const staleStats = makeStatsCache({
@@ -234,6 +306,7 @@ describe('parseStats', () => {
 
       const recentSession = {
         sessionId: 'new-session',
+        provider: 'claude' as const,
         projectPath: '/proj',
         projectName: 'proj',
         branch: 'main',
@@ -256,28 +329,15 @@ describe('parseStats', () => {
       vi.mocked(fsMock.stat).mockResolvedValue(makeStat(1_000_000) as never)
       vi.mocked(readDiskCache).mockReturnValue(staleStats)
       vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([recentSession])
-      vi.mocked(parseDetail).mockResolvedValue({
-        sessionId: 'new-session',
-        projectPath: '/proj',
-        projectName: 'proj',
-        branch: 'main',
-        isInteractive: true,
-        turns: [
-          { uuid: 't1', type: 'user', timestamp: new Date().toISOString(), toolCalls: [] },
-          { uuid: 't2', type: 'assistant', timestamp: new Date().toISOString(), toolCalls: [] },
-          { uuid: 't3', type: 'user', timestamp: new Date().toISOString(), toolCalls: [] },
-          { uuid: 't4', type: 'assistant', timestamp: new Date().toISOString(), toolCalls: [] },
-          { uuid: 't5', type: 'user', timestamp: new Date().toISOString(), toolCalls: [] },
-        ],
-        totalTokens: { inputTokens: 100, outputTokens: 50, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
-        tokensByModel: {},
-        toolFrequency: { Bash: 2 },
-        errors: [],
-        models: ['claude-opus-4-6'],
-        agents: [],
-        skills: [],
-        tasks: [],
-        contextWindow: null,
+      await mockAdapters({
+        claude: async () =>
+          makeDetail({
+            sessionId: 'new-session',
+            provider: 'claude',
+            model: 'claude-opus-4-6',
+            turnCount: 5,
+            toolFrequency: { Bash: 2 },
+          }),
       })
 
       const result = await parseStats()
@@ -300,13 +360,16 @@ describe('parseStats', () => {
       vi.mocked(readDiskCache).mockReturnValue(staleStats)
       vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([])
 
-      // First call — triggers scan
+      // First call — triggers the enrichment scan AND the Codex-compute scan
+      // (two distinct scans, each independently cached for 60s).
       await parseStats()
-      // Second call — should use merge cache (same mtime, within 60s)
+      // Second call — both the enrichment merge cache and the Codex stats cache
+      // are warm (same mtime, within 60s), so no further scans happen.
       await parseStats()
 
-      // scanAllSessionsWithPaths should only be called once
-      expect(scanAllSessionsWithPaths).toHaveBeenCalledTimes(1)
+      // First call: 1 enrichment scan + 1 Codex-compute scan = 2.
+      // Second call: both served from cache = 0. Total stays at 2.
+      expect(scanAllSessionsWithPaths).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -327,6 +390,268 @@ describe('parseStats', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Codex stats integration (Phase 5) — provider-aware compute + merge
+// ---------------------------------------------------------------------------
+
+function makeCodexSummary(overrides: Partial<SessionSummaryWithPath> = {}): SessionSummaryWithPath {
+  return {
+    sessionId: 'codex-1',
+    provider: 'codex',
+    projectPath: '/proj',
+    projectName: 'proj',
+    branch: null,
+    cwd: '/proj',
+    startedAt: '2026-06-10T13:00:00.000Z',
+    lastActiveAt: '2026-06-10T13:30:00.000Z',
+    durationMs: 1_800_000,
+    messageCount: 4,
+    userMessageCount: 2,
+    assistantMessageCount: 2,
+    isActive: false,
+    model: 'gpt-5-codex',
+    version: '0.36.0',
+    toolCallCount: 0,
+    fileSizeBytes: 1024,
+    isInteractive: true,
+    filePath: '/codex/rollout-codex-1.jsonl',
+    ...overrides,
+  }
+}
+
+function makeClaudeSummary(overrides: Partial<SessionSummaryWithPath> = {}): SessionSummaryWithPath {
+  return {
+    sessionId: 'claude-1',
+    provider: 'claude',
+    projectPath: '/proj',
+    projectName: 'proj',
+    branch: 'main',
+    cwd: '/proj',
+    startedAt: '2026-06-10T09:00:00.000Z',
+    lastActiveAt: '2026-06-10T09:30:00.000Z',
+    durationMs: 1_800_000,
+    messageCount: 2,
+    userMessageCount: 1,
+    assistantMessageCount: 1,
+    isActive: false,
+    model: 'claude-opus-4-6',
+    version: '1.0.0',
+    toolCallCount: 0,
+    fileSizeBytes: 512,
+    isInteractive: true,
+    filePath: '/claude/claude-1.jsonl',
+    ...overrides,
+  }
+}
+
+describe('Codex stats integration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('(a) folds a Codex session into modelUsage, daily activity, and hour counts', async () => {
+    const { promises: fsMock } = await import('node:fs')
+    const { readDiskCache } = await import('@/lib/cache/disk-cache')
+    const { scanAllSessionsWithPaths } = await import('@/lib/scanner/session-scanner')
+    const parseStats = await freshParseStats()
+
+    // Fresh Claude stats-cache (no enrichment), with a known Claude model.
+    const claudeStats = makeStatsCache({
+      modelUsage: {
+        'claude-opus-4-6': {
+          inputTokens: 1000, outputTokens: 500,
+          cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+        },
+      },
+      dailyActivity: [{ date: '2026-06-10', messageCount: 2, sessionCount: 1, toolCallCount: 0 }],
+      hourCounts: { '9': 1 },
+      totalSessions: 1,
+      totalMessages: 2,
+    })
+
+    vi.mocked(fsMock.stat).mockResolvedValue(makeStat(1_000_000) as never)
+    vi.mocked(readDiskCache).mockReturnValue(claudeStats)
+    // The Codex compute scans sessions; only the Codex one survives the filter.
+    vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([makeCodexSummary()])
+    await mockAdapters({
+      codex: async () =>
+        makeDetail({
+          sessionId: 'codex-1',
+          provider: 'codex',
+          model: 'gpt-5-codex',
+          turnCount: 4,
+          toolFrequency: { exec_command: 3 },
+          tokensByModel: {
+            'gpt-5-codex': {
+              inputTokens: 800, outputTokens: 300,
+              cacheReadInputTokens: 50, cacheCreationInputTokens: 0,
+            },
+          },
+        }),
+    })
+
+    const result = await parseStats()
+
+    expect(result).not.toBeNull()
+    // Codex model id coexists with the Claude model id (no collision).
+    expect(result!.modelUsage['claude-opus-4-6']).toEqual({
+      inputTokens: 1000, outputTokens: 500,
+      cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+    })
+    expect(result!.modelUsage['gpt-5-codex']).toEqual({
+      inputTokens: 800, outputTokens: 300,
+      cacheReadInputTokens: 50, cacheCreationInputTokens: 0,
+    })
+    // dailyModelTokens carries the Codex model under its real id (input+output).
+    const codexDay = result!.dailyModelTokens.find((d) => d.date === '2026-06-10')
+    expect(codexDay?.tokensByModel['gpt-5-codex']).toBe(1100)
+    // Daily activity for 2026-06-10 now reflects Claude (1 session) + Codex (1).
+    const activity = result!.dailyActivity.find((d) => d.date === '2026-06-10')
+    expect(activity?.sessionCount).toBe(2)
+    expect(activity?.toolCallCount).toBe(3) // from the Codex exec_command calls
+    // Combined totals reflect both providers.
+    expect(result!.totalSessions).toBe(2)
+    // Hour counts include the Codex session's hour bucket alongside Claude's.
+    const hourTotal = Object.values(result!.hourCounts).reduce((sum, n) => sum + n, 0)
+    expect(hourTotal).toBeGreaterThanOrEqual(2)
+  })
+
+  it('(b) dispatches per-session parsing to the adapter matching each session provider', async () => {
+    const { promises: fsMock } = await import('node:fs')
+    const { scanAllSessionsWithPaths } = await import('@/lib/scanner/session-scanner')
+    const { getAdapter } = await import('@/lib/adapters/adapter')
+    const parseStats = await freshParseStats()
+
+    // No stats-cache file → computeStatsFromSessions() runs over ALL providers.
+    vi.mocked(fsMock.stat).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([
+      makeClaudeSummary(),
+      makeCodexSummary(),
+    ])
+    const mocks = await mockAdapters({
+      claude: async () =>
+        makeDetail({ sessionId: 'claude-1', provider: 'claude', model: 'claude-opus-4-6', turnCount: 2 }),
+      codex: async () =>
+        makeDetail({ sessionId: 'codex-1', provider: 'codex', model: 'gpt-5-codex', turnCount: 4 }),
+    })
+
+    await parseStats()
+
+    // getAdapter is called with each session's provider id.
+    expect(getAdapter).toHaveBeenCalledWith('claude')
+    expect(getAdapter).toHaveBeenCalledWith('codex')
+    // Each provider's parseDetail runs against its own session's file path.
+    expect(mocks.claude).toHaveBeenCalledWith(
+      '/claude/claude-1.jsonl', 'claude-1', '/proj', 'proj',
+    )
+    expect(mocks.codex).toHaveBeenCalledWith(
+      '/codex/rollout-codex-1.jsonl', 'codex-1', '/proj', 'proj',
+    )
+    // No cross-wiring: the Claude adapter never parsed the Codex rollout.
+    expect(mocks.claude).not.toHaveBeenCalledWith(
+      '/codex/rollout-codex-1.jsonl', expect.anything(), expect.anything(), expect.anything(),
+    )
+  })
+
+  it('(b2) counts a recent Codex session exactly ONCE, not doubled (FIX-2)', async () => {
+    // Regression: a Codex session dated AFTER the Claude cache lastComputedDate
+    // used to be folded in twice — once by recent-session enrichment (which
+    // scanned ALL providers) and once by combineWithCodexStats. Enrichment is
+    // now restricted to Claude, so Codex contributes exactly once.
+    const { promises: fsMock } = await import('node:fs')
+    const { readDiskCache } = await import('@/lib/cache/disk-cache')
+    const { scanAllSessionsWithPaths } = await import('@/lib/scanner/session-scanner')
+    const parseStats = await freshParseStats()
+
+    // STALE Claude cache → triggers recent-session enrichment.
+    const claudeStats = makeStatsCache({
+      lastComputedDate: '2024-01-01T00:00:00.000Z',
+      modelUsage: {},
+      dailyActivity: [],
+      dailyModelTokens: [],
+      hourCounts: {},
+      totalSessions: 0,
+      totalMessages: 0,
+    })
+
+    // One Codex session, recent (after the cutoff), no Claude sessions.
+    const recentCodex = makeCodexSummary({
+      sessionId: 'codex-recent',
+      startedAt: '2026-06-15T13:00:00.000Z',
+      lastActiveAt: '2026-06-15T13:30:00.000Z',
+      filePath: '/codex/rollout-codex-recent.jsonl',
+    })
+
+    vi.mocked(fsMock.stat).mockResolvedValue(makeStat(1_000_000) as never)
+    vi.mocked(readDiskCache).mockReturnValue(claudeStats)
+    vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([recentCodex])
+    await mockAdapters({
+      codex: async () =>
+        makeDetail({
+          sessionId: 'codex-recent',
+          provider: 'codex',
+          model: 'gpt-5-codex',
+          turnCount: 4,
+          tokensByModel: {
+            'gpt-5-codex': {
+              inputTokens: 800, outputTokens: 300,
+              cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+            },
+          },
+        }),
+    })
+
+    const result = await parseStats()
+
+    expect(result).not.toBeNull()
+    // Counted ONCE: 1 session, not 2; tokens not doubled.
+    expect(result!.totalSessions).toBe(1)
+    expect(result!.modelUsage['gpt-5-codex']).toEqual({
+      inputTokens: 800, outputTokens: 300,
+      cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+    })
+    const day = result!.dailyActivity.find((d) => d.date === '2026-06-15')
+    expect(day?.sessionCount).toBe(1)
+    const dayTokens = result!.dailyModelTokens.find((d) => d.date === '2026-06-15')
+    expect(dayTokens?.tokensByModel['gpt-5-codex']).toBe(1100) // 800+300, once
+  })
+
+  it('(c) leaves Claude stats unchanged when there is no Codex contribution (merge no-op)', async () => {
+    const { promises: fsMock } = await import('node:fs')
+    const { readDiskCache } = await import('@/lib/cache/disk-cache')
+    const { scanAllSessionsWithPaths } = await import('@/lib/scanner/session-scanner')
+    const parseStats = await freshParseStats()
+
+    const claudeStats = makeStatsCache({
+      modelUsage: {
+        'claude-opus-4-6': {
+          inputTokens: 1000, outputTokens: 500,
+          cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+        },
+      },
+      dailyActivity: [{ date: '2026-06-10', messageCount: 2, sessionCount: 1, toolCallCount: 0 }],
+      hourCounts: { '9': 1 },
+      totalSessions: 1,
+      totalMessages: 2,
+    })
+
+    vi.mocked(fsMock.stat).mockResolvedValue(makeStat(1_000_000) as never)
+    vi.mocked(readDiskCache).mockReturnValue(claudeStats)
+    // Scan returns ONLY Claude sessions → the Codex filter yields an empty set.
+    vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([makeClaudeSummary()])
+    await mockAdapters({
+      claude: async () =>
+        makeDetail({ sessionId: 'claude-1', provider: 'claude', model: 'claude-opus-4-6', turnCount: 2 }),
+    })
+
+    const result = await parseStats()
+
+    // Output is byte-for-byte the Claude cache: the empty Codex compute is a
+    // no-op (hasCodexContribution() is false, so mergeStatsCaches never runs).
+    expect(result).toEqual(claudeStats)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // updateHourCounts — tested indirectly via computeStatsFromSessions
 // ---------------------------------------------------------------------------
 
@@ -338,12 +663,12 @@ describe('hour bucketing (via computeStatsFromSessions)', () => {
   it('increments the correct hour bucket from startedAt timestamp', async () => {
     const { promises: fsMock } = await import('node:fs')
     const { scanAllSessionsWithPaths } = await import('@/lib/scanner/session-scanner')
-    const { parseDetail } = await import('@/lib/parsers/session-parser')
     const parseStats = await freshParseStats()
 
     // startedAt at 09:00 UTC
     const session = {
       sessionId: 'hour-test',
+      provider: 'claude' as const,
       projectPath: '/proj',
       projectName: 'proj',
       branch: null,
@@ -366,7 +691,12 @@ describe('hour bucketing (via computeStatsFromSessions)', () => {
     // stat fails → goes to computeStatsFromSessions
     vi.mocked(fsMock.stat).mockRejectedValue(new Error('ENOENT'))
     vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([session])
-    vi.mocked(parseDetail).mockRejectedValue(new Error('parse error')) // forces summary fallback
+    // parseDetail rejects → forces the summary fallback path
+    await mockAdapters({
+      claude: async () => {
+        throw new Error('parse error')
+      },
+    })
 
     const result = await parseStats()
 
@@ -385,6 +715,7 @@ describe('hour bucketing (via computeStatsFromSessions)', () => {
 
     const session = {
       sessionId: 'no-time',
+      provider: 'claude' as const,
       projectPath: '/proj',
       projectName: 'proj',
       branch: null,

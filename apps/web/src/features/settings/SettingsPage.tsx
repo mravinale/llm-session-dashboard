@@ -4,10 +4,8 @@ import { settingsQuery, useSettingsMutation } from './settings.queries'
 import {
   DEFAULT_SETTINGS,
   type Settings,
-  type SubscriptionTierId,
   type ModelPricingOverride,
 } from './settings.types'
-import { TierSelector } from './TierSelector'
 import { PricingTableEditor } from './PricingTableEditor'
 import { usePrivacy } from '@/features/privacy/PrivacyContext'
 import { useTheme } from '@/features/theme/ThemeProvider'
@@ -33,14 +31,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const { theme, toggleTheme } = useTheme()
   const isDark = theme === 'dark'
 
-  const [tier, setTier] = useState<SubscriptionTierId>(settings.subscriptionTier)
   const [overrides, setOverrides] = useState<Record<string, ModelPricingOverride>>(settings.pricingOverrides)
   const [isDirty, setIsDirty] = useState(false)
-
-  function handleTierChange(newTier: SubscriptionTierId) {
-    setTier(newTier)
-    setIsDirty(true)
-  }
 
   function handleOverridesChange(newOverrides: Record<string, ModelPricingOverride>) {
     setOverrides(newOverrides)
@@ -48,7 +40,6 @@ function SettingsForm({ settings }: { settings: Settings }) {
   }
 
   function handleReset() {
-    setTier(DEFAULT_SETTINGS.subscriptionTier)
     setOverrides(DEFAULT_SETTINGS.pricingOverrides)
     setIsDirty(true)
   }
@@ -56,7 +47,6 @@ function SettingsForm({ settings }: { settings: Settings }) {
   function handleSave() {
     const updated: Settings = {
       version: 1,
-      subscriptionTier: tier,
       pricingOverrides: overrides,
       dataSources: [],
     }
@@ -71,7 +61,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
     <div>
       <h1 className="text-xl font-bold text-gray-100">Settings</h1>
       <p className="mt-1 text-xs text-gray-500">
-        Configure your subscription tier and API pricing for cost estimation.
+        Configure API pricing for cost estimation.
       </p>
 
       {/* Privacy Mode */}
@@ -165,18 +155,6 @@ function SettingsForm({ settings }: { settings: Settings }) {
               </button>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Subscription Tier */}
-      <div className="mt-6">
-        <h2 className="text-sm font-semibold text-gray-300">Subscription Tier</h2>
-        <p className="mt-1 text-[10px] text-gray-500">
-          Select your Claude subscription plan. This is informational only and does not
-          affect cost calculations.
-        </p>
-        <div className="mt-3">
-          <TierSelector value={tier} onChange={handleTierChange} />
         </div>
       </div>
 

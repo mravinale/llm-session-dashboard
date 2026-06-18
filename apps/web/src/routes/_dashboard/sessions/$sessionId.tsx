@@ -16,10 +16,14 @@ import { sessionToJSON, downloadFile } from '@/lib/utils/export-utils'
 import { ExportDropdown } from '@/components/ExportDropdown'
 import { SessionIdDisplay } from '@/features/session-detail/SessionIdDisplay'
 import { usePrivacy } from '@/features/privacy/PrivacyContext'
+import { providerIdSchema } from '@/lib/adapters/provider-registry'
 import { z } from 'zod'
 
 const searchSchema = z.object({
   project: z.string().optional(),
+  // Provider routes the detail fetch to the right adapter (P6). Optional so old
+  // bookmarked links (no provider) still resolve via the back-compat probe.
+  provider: providerIdSchema.optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/_dashboard/sessions/$sessionId')({
@@ -29,13 +33,13 @@ export const Route = createFileRoute('/_dashboard/sessions/$sessionId')({
 
 function SessionDetailPage() {
   const { sessionId } = Route.useParams()
-  const { project = '' } = Route.useSearch()
+  const { project = '', provider } = Route.useSearch()
 
   const { privacyMode, anonymizeProjectName, anonymizeBranch } = usePrivacy()
   const isActive = useIsSessionActive(sessionId)
 
   const { data: detail, isLoading, error } = useQuery(
-    sessionDetailQuery(sessionId, project, isActive),
+    sessionDetailQuery(sessionId, project, isActive, provider),
   )
 
   if (isLoading) {

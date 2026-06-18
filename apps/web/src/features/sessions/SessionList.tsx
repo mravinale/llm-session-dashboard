@@ -7,10 +7,18 @@ import { SessionFilters } from './SessionFilters'
 import { PaginationControls } from './PaginationControls'
 import { usePageSizePreference } from './usePageSizePreference'
 import { Route } from '@/routes/_dashboard/sessions/index'
+import { describeProviders, type ProviderId } from '@/lib/adapters/provider-registry'
+
+/** Provider-aware empty-state copy: names the data roots actually present. */
+function emptyStateMessage(providers: ProviderId[]): string {
+  if (providers.length === 0) return 'No sessions found in ~/.claude'
+  const roots = providers.includes('codex') ? '~/.claude and ~/.codex' : '~/.claude'
+  return `No ${describeProviders(providers)} sessions found in ${roots}`
+}
 
 export function SessionList() {
   const navigate = useNavigate()
-  const { page, pageSize, search, status, project, sort, sortDir } = Route.useSearch()
+  const { page, pageSize, search, status, project, provider, sort, sortDir } = Route.useSearch()
   const { storedPageSize, setPageSize } = usePageSizePreference()
   const hasAppliedStoredPreference = useRef(false)
 
@@ -33,7 +41,7 @@ export function SessionList() {
   }, [storedPageSize, pageSize, navigate])
 
   const { data: paginatedData, isLoading } = useQuery(
-    paginatedSessionListQuery({ page, pageSize, search, status, project, sort, sortDir }),
+    paginatedSessionListQuery({ page, pageSize, search, status, project, provider, sort, sortDir }),
   )
   const { data: activeSessions = [] } = useQuery(activeSessionsQuery)
 
@@ -78,17 +86,20 @@ export function SessionList() {
   const totalCount = paginatedData?.totalCount ?? 0
   const totalPages = paginatedData?.totalPages ?? 1
   const projects = paginatedData?.projects ?? []
+  const providers = paginatedData?.providers ?? []
   const activeCount = activeSessions.length
+  const noFiltersApplied =
+    !search && status === 'all' && !project && provider === 'all'
 
   return (
     <div>
-      <SessionFilters projects={projects} activeCount={activeCount} />
+      <SessionFilters projects={projects} providers={providers} activeCount={activeCount} />
 
       <div className="mt-4 space-y-2">
         {mergedSessions.length === 0 ? (
           <div className="py-12 text-center text-sm text-gray-500">
-            {totalCount === 0 && !search && status === 'all' && !project
-              ? 'No sessions found in ~/.claude'
+            {totalCount === 0 && noFiltersApplied
+              ? emptyStateMessage(providers)
               : 'No sessions match your filters'}
           </div>
         ) : (
