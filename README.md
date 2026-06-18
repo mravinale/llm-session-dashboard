@@ -1,14 +1,14 @@
 # LLM Session Dashboard
 
-[![CI](https://github.com/dlupiak/claude-session-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/dlupiak/claude-session-dashboard/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/dlupiak/claude-session-dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/dlupiak/claude-session-dashboard/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/dlupiak/claude-session-dashboard)](https://securityscorecards.dev/viewer/?uri=github.com/dlupiak/claude-session-dashboard)
+[![CI](https://github.com/mravinale/llm-session-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/mravinale/llm-session-dashboard/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/mravinale/llm-session-dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/mravinale/llm-session-dashboard/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/mravinale/llm-session-dashboard)](https://securityscorecards.dev/viewer/?uri=github.com/mravinale/llm-session-dashboard)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12094/badge)](https://www.bestpractices.dev/projects/12094)
-[![codecov](https://codecov.io/gh/dlupiak/claude-session-dashboard/graph/badge.svg)](https://codecov.io/gh/dlupiak/claude-session-dashboard)
-[![Socket](https://img.shields.io/badge/Socket-secured-green?logo=socket.dev)](https://socket.dev/npm/package/claude-session-dashboard)
-[![npm version](https://img.shields.io/npm/v/claude-session-dashboard)](https://www.npmjs.com/package/claude-session-dashboard)
-[![npm downloads](https://img.shields.io/npm/dm/claude-session-dashboard)](https://www.npmjs.com/package/claude-session-dashboard)
-[![Node.js](https://img.shields.io/node/v/claude-session-dashboard)](https://nodejs.org)
+[![codecov](https://codecov.io/gh/mravinale/llm-session-dashboard/graph/badge.svg)](https://codecov.io/gh/mravinale/llm-session-dashboard)
+[![Socket](https://img.shields.io/badge/Socket-secured-green?logo=socket.dev)](https://socket.dev/npm/package/llm-session-dashboard)
+[![npm version](https://img.shields.io/npm/v/llm-session-dashboard)](https://www.npmjs.com/package/llm-session-dashboard)
+[![npm downloads](https://img.shields.io/npm/dm/llm-session-dashboard)](https://www.npmjs.com/package/llm-session-dashboard)
+[![Node.js](https://img.shields.io/node/v/llm-session-dashboard)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 See exactly where your context window goes. Trace every agent delegation. Understand how your **Claude Code** and **OpenAI Codex** sessions actually execute — all from your local `~/.claude` and `~/.codex`, no data sent anywhere.
@@ -16,7 +16,7 @@ See exactly where your context window goes. Trace every agent delegation. Unders
 Both CLIs show up side by side: when `~/.codex` is present, Codex sessions appear alongside your Claude sessions across the list, detail, stats, and cost views — each tagged with a provider badge and filterable by provider.
 
 ```bash
-npx claude-session-dashboard
+npx llm-session-dashboard
 ```
 
 ## Why?
@@ -72,7 +72,7 @@ Everything runs entirely on your machine. Read-only — it never modifies any Cl
 - Configurable API pricing per model -- Anthropic (Opus, Sonnet, Haiku) and OpenAI / Codex (GPT-5 family)
 - Reasoning tokens billed at the output rate for Codex
 - Override any rate to match your negotiated pricing
-- Settings persisted to `~/.claude-dashboard/settings.json`
+- Settings persisted to `~/.llm-dashboard/settings.json`
 
 ![Settings Page](screenshots/settings-page.png)
 
@@ -96,21 +96,21 @@ Everything runs entirely on your machine. Read-only — it never modifies any Cl
 ### Using npx (recommended)
 
 ```bash
-npx claude-session-dashboard
+npx llm-session-dashboard
 ```
 
 ### Using npm (global install)
 
 ```bash
-npm install -g claude-session-dashboard
-claude-dashboard
+npm install -g llm-session-dashboard
+llm-dashboard
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/dlupiak/claude-session-dashboard.git
-cd claude-session-dashboard/apps/web
+git clone https://github.com/mravinale/llm-session-dashboard.git
+cd llm-session-dashboard/apps/web
 npm install
 npm run build
 npm start
@@ -125,14 +125,14 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 **Global install** — check your current version and update:
 
 ```bash
-claude-dashboard --version           # see current version
-npm install -g claude-session-dashboard@latest
+llm-dashboard --version           # see current version
+npm install -g llm-session-dashboard@latest
 ```
 
 **From source** — pull the latest changes and rebuild:
 
 ```bash
-cd claude-session-dashboard
+cd llm-session-dashboard
 git pull
 cd apps/web && npm install && npm run build
 ```
@@ -204,7 +204,7 @@ apps/web/src/
 2. **Normalizing** -- Each adapter parses its own JSONL format and emits the same shared domain types (sessions, turns, tool calls, agents, tasks, token usage), tagged with a `provider`. The rest of the app never branches on provider.
 3. **Server Functions** -- TanStack Start server functions (`createServerFn`) expose parsed data to the client via type-safe RPC. All file I/O stays on the server.
 4. **React Query** -- The UI fetches data through React Query with automatic background refetch for live updates. Active sessions use adaptive polling intervals.
-5. **Caching** -- Parsed session summaries and heatmap data are cached in memory (mtime-based invalidation) and on disk (`~/.claude-dashboard/cache/`) for fast startup.
+5. **Caching** -- Parsed session summaries and heatmap data are cached in memory (mtime-based invalidation) and on disk (`~/.llm-dashboard/cache/`) for fast startup.
 
 ## Development
 
@@ -221,16 +221,16 @@ npm run e2e          # End-to-end tests (Playwright)
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and conventions. Check [good first issues](https://github.com/dlupiak/claude-session-dashboard/labels/good%20first%20issue) for beginner-friendly tasks.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and conventions. Check [good first issues](https://github.com/mravinale/llm-session-dashboard/labels/good%20first%20issue) for beginner-friendly tasks.
 
 If you find this project useful, consider giving it a star -- it helps others discover it.
 
 ## Links
 
-- [GitHub](https://github.com/dlupiak/claude-session-dashboard)
-- [npm](https://www.npmjs.com/package/claude-session-dashboard)
-- [Issues](https://github.com/dlupiak/claude-session-dashboard/issues)
-- [Discussions](https://github.com/dlupiak/claude-session-dashboard/discussions)
+- [GitHub](https://github.com/mravinale/llm-session-dashboard)
+- [npm](https://www.npmjs.com/package/llm-session-dashboard)
+- [Issues](https://github.com/mravinale/llm-session-dashboard/issues)
+- [Discussions](https://github.com/mravinale/llm-session-dashboard/discussions)
 
 ## License
 
