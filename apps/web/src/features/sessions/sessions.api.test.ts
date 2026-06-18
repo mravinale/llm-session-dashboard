@@ -7,6 +7,7 @@ describe('paginateAndFilterSessions', () => {
     overrides: Partial<SessionSummary> = {},
   ): SessionSummary => ({
     sessionId: `session-${Math.random()}`,
+    provider: 'claude',
     projectPath: '/path/to/project',
     projectName: 'test-project',
     branch: 'main',

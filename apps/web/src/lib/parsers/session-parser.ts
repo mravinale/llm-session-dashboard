@@ -12,9 +12,10 @@ import type {
   TaskItem,
   RawJsonlMessage,
   ContextWindowSnapshot,
-  ContextWindowData,
 } from './types'
 import { discoverSubagentFiles } from './subagent-discovery'
+import { readHeadLines, readTailLines, safeParseLine } from '@/lib/adapters/shared/jsonl-io'
+import { buildContextWindowData } from '@/lib/adapters/shared/context-window'
 
 /** Tool names that dispatch a subagent (Task = legacy, Agent = 2.1.68+) */
 const AGENT_DISPATCH_TOOL_NAMES = new Set(['Task', 'Agent'])
@@ -107,6 +108,7 @@ export async function parseSummary(
 
   return {
     sessionId,
+    provider: 'claude',
     projectPath,
     projectName,
     branch,
@@ -585,7 +587,8 @@ export async function parseDetail(
     }
   }
 
-  // Build context window data
+  // Build context window data. Claude has no per-session context limit on
+  // disk, so we pass the default 200K (the shared helper's default).
   const modelName = modelsSet.size > 0 ? Array.from(modelsSet)[0] : 'unknown'
   const contextWindow = buildContextWindowData(
     contextSnapshots,
@@ -594,6 +597,7 @@ export async function parseDetail(
 
   return {
     sessionId,
+    provider: 'claude',
     projectPath,
     projectName,
     branch,
@@ -773,39 +777,6 @@ async function parseSubagentDetail(
   return { skills, tokens, toolCalls, model, totalToolUseCount }
 }
 
-// --- Context window helpers ---
-
-function getContextLimit(_modelName: string): number {
-  return 200_000
-}
-
-function buildContextWindowData(
-  snapshots: ContextWindowSnapshot[],
-  modelName: string,
-): ContextWindowData | null {
-  if (snapshots.length === 0) return null
-
-  const contextLimit = getContextLimit(modelName)
-  const autocompactBuffer = Math.round(contextLimit * 0.165)
-  const systemOverhead = snapshots[0].contextSize
-  const currentContextSize = snapshots[snapshots.length - 1].contextSize
-  const messagesEstimate = Math.max(0, currentContextSize - systemOverhead)
-  const freeSpace = Math.max(0, contextLimit - currentContextSize)
-  const usagePercent = Math.round((currentContextSize / contextLimit) * 100)
-
-  return {
-    contextLimit,
-    modelName,
-    systemOverhead,
-    currentContextSize,
-    messagesEstimate,
-    freeSpace,
-    autocompactBuffer,
-    usagePercent,
-    snapshots,
-  }
-}
-
 // --- Token merge helpers ---
 
 function createEmptyTokenUsage(): TokenUsage {
@@ -905,51 +876,9 @@ function mergeSubagentData(
 
 // --- Helpers ---
 
-async function readHeadLines(
-  filePath: string,
-  count: number,
-): Promise<string[]> {
-  const lines: string[] = []
-  const stream = fs.createReadStream(filePath, { encoding: 'utf-8' })
-  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity })
-
-  for await (const line of rl) {
-    lines.push(line)
-    if (lines.length >= count) break
-  }
-
-  stream.destroy()
-  rl.close()
-  return lines
-}
-
-async function readTailLines(
-  filePath: string,
-  count: number,
-): Promise<string[]> {
-  // Read the last ~64KB to get tail lines (enough for any reasonable line length)
-  const stat = await fs.promises.stat(filePath)
-  const readSize = Math.min(stat.size, 65536)
-  const buffer = Buffer.alloc(readSize)
-
-  const fd = await fs.promises.open(filePath, 'r')
-  try {
-    await fd.read(buffer, 0, readSize, Math.max(0, stat.size - readSize))
-  } finally {
-    await fd.close()
-  }
-
-  const text = buffer.toString('utf-8')
-  const lines = text.split('\n').filter(Boolean)
-  return lines.slice(-count)
-}
-
+/** Parse a Claude session JSONL line into a `RawJsonlMessage`, or `null`. */
 function safeParse(line: string): RawJsonlMessage | null {
-  try {
-    return JSON.parse(line) as RawJsonlMessage
-  } catch {
-    return null
-  }
+  return safeParseLine<RawJsonlMessage>(line)
 }
 
 function extractToolResultText(block: {

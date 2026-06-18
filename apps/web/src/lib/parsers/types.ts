@@ -1,9 +1,12 @@
 import { z } from 'zod'
+import type { ProviderId } from '@/lib/adapters/provider-registry'
 
 // --- Session summary (derived from first/last N lines of JSONL) ---
 
 export interface SessionSummary {
   sessionId: string
+  /** Which provider produced this session (P2 — type from provider-registry). */
+  provider: ProviderId
   projectPath: string
   projectName: string
   branch: string | null
@@ -21,6 +24,10 @@ export interface SessionSummary {
   fileSizeBytes: number
   /** Total output tokens from assistant messages (lightweight streaming parse) */
   outputTokens?: number
+  /** Optional human-readable title (Codex thread_name); undefined for Claude. */
+  title?: string
+  /** Codex-only reasoning output tokens, for display; undefined for Claude. */
+  reasoningOutputTokens?: number
   /** Which DataSource this came from, e.g. 'primary', 'wsl-ubuntu-user' */
   sourceId?: string
   /** Display label for the source, e.g. 'Windows', 'WSL - Ubuntu' */
@@ -112,9 +119,13 @@ export interface ContextWindowData {
 
 export interface SessionDetail {
   sessionId: string
+  /** Which provider produced this session (P2 — type from provider-registry). */
+  provider: ProviderId
   projectPath: string
   projectName: string
   branch: string | null
+  /** Optional human-readable title (Codex thread_name); undefined for Claude. */
+  title?: string
   /** Whether this is an interactive (human-driven) session vs a task/subagent session */
   isInteractive: boolean
   turns: Turn[]

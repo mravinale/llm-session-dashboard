@@ -234,6 +234,7 @@ describe('parseStats', () => {
 
       const recentSession = {
         sessionId: 'new-session',
+        provider: 'claude' as const,
         projectPath: '/proj',
         projectName: 'proj',
         branch: 'main',
@@ -258,6 +259,7 @@ describe('parseStats', () => {
       vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([recentSession])
       vi.mocked(parseDetail).mockResolvedValue({
         sessionId: 'new-session',
+        provider: 'claude',
         projectPath: '/proj',
         projectName: 'proj',
         branch: 'main',
@@ -344,6 +346,7 @@ describe('hour bucketing (via computeStatsFromSessions)', () => {
     // startedAt at 09:00 UTC
     const session = {
       sessionId: 'hour-test',
+      provider: 'claude' as const,
       projectPath: '/proj',
       projectName: 'proj',
       branch: null,
@@ -385,6 +388,7 @@ describe('hour bucketing (via computeStatsFromSessions)', () => {
 
     const session = {
       sessionId: 'no-time',
+      provider: 'claude' as const,
       projectPath: '/proj',
       projectName: 'proj',
       branch: null,

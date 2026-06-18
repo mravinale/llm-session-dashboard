@@ -16,6 +16,7 @@ vi.mock('@tanstack/react-query', async () => {
 describe('useIsSessionActive', () => {
   const createMockSession = (sessionId: string): SessionSummary => ({
     sessionId,
+    provider: 'claude',
     projectPath: '/path/to/project',
     projectName: 'test-project',
     branch: 'main',
