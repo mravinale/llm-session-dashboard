@@ -23,14 +23,20 @@ export interface ProviderDescriptor {
 /**
  * The complete set of known providers.
  *
- * Phase 0 ships Claude only — the adapter seam is established here without any
- * behavioral change. Codex is added to this array in Phase 1.
+ * Codex is added in Phase 1. Its badge color is teal/emerald to stay distinct
+ * from the platform `SourceBadge` colors (which use gray/blue/amber) and from
+ * the Claude brand-terracotta badge.
  */
 export const PROVIDERS = [
   {
     id: 'claude',
     label: 'Claude',
     badgeClass: 'bg-brand-700/30 text-brand-300 border border-brand-700/40',
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    badgeClass: 'bg-emerald-700/25 text-emerald-300 border border-emerald-700/40',
   },
 ] as const satisfies readonly ProviderDescriptor[]
 

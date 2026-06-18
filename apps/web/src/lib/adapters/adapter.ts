@@ -1,6 +1,9 @@
+import * as fs from 'node:fs'
 import type { ProviderId } from '@/lib/adapters/provider-registry'
 import type { SessionSummary, SessionDetail } from '@/lib/parsers/types'
 import { claudeAdapter } from '@/lib/adapters/claude/claude-adapter'
+import { codexAdapter } from '@/lib/adapters/codex/codex-adapter'
+import { getCodexHome } from '@/lib/adapters/codex/codex-path'
 
 /**
  * Extended summary that includes the absolute JSONL file path (server-side only).
@@ -71,11 +74,25 @@ export type { SessionSummary, SessionDetail }
 /**
  * Registry of concrete adapters (P5 — same concern as the interface, same file).
  *
- * Phase 0 registers only the Claude adapter, so the generic pipeline behaves
- * identically to today. Codex is added in Phase 1 (probed via `codex-path`).
+ * Claude is always registered. Codex is included only when `~/.codex` exists
+ * (probed synchronously, mirroring how Claude's `available` flag works), so on
+ * machines without Codex the pipeline behaves exactly as before.
  */
 export function getAdapters(): SessionSourceAdapter[] {
-  return [claudeAdapter]
+  const adapters: SessionSourceAdapter[] = [claudeAdapter]
+  if (isCodexAvailable()) {
+    adapters.push(codexAdapter)
+  }
+  return adapters
+}
+
+/** Synchronous existence probe for the Codex home directory. */
+function isCodexAvailable(): boolean {
+  try {
+    return fs.existsSync(getCodexHome())
+  } catch {
+    return false
+  }
 }
 
 /** Resolve the adapter for a given provider id. */
