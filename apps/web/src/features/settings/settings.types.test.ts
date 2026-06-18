@@ -34,6 +34,16 @@ describe('normalizeModelId', () => {
     expect(normalizeModelId('claude-sonnet-4-2025051')).toBe('claude-sonnet-4-2025051') // 7 digits
     expect(normalizeModelId('claude-sonnet-4-202505144')).toBe('claude-sonnet-4-202505144') // 9 digits
   })
+
+  it('leaves OpenAI/Codex model ids untouched (no date-suffix to strip)', () => {
+    // The 8-digit-date-suffix stripping is a no-op for OpenAI ids, so Codex
+    // models resolve directly against DEFAULT_PRICING. Locks current behavior.
+    expect(normalizeModelId('gpt-5.5')).toBe('gpt-5.5')
+    expect(normalizeModelId('gpt-5-codex')).toBe('gpt-5-codex')
+    expect(normalizeModelId('gpt-5.3-codex')).toBe('gpt-5.3-codex')
+    expect(normalizeModelId('gpt-5.4')).toBe('gpt-5.4')
+    expect(normalizeModelId('gpt-5.2-codex')).toBe('gpt-5.2-codex')
+  })
 })
 
 describe('SettingsSchema', () => {

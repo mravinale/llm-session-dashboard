@@ -126,6 +126,60 @@ export const DEFAULT_PRICING: ModelPricing[] = [
     cacheReadPerMTok: 0.03,
     cacheWritePerMTok: 0.3,
   },
+  // --- OpenAI / Codex models ---
+  // Estimated OpenAI/Codex pricing — verify against current OpenAI rates; users
+  // can override per-model in Settings. Based on the GPT-5 family API pricing
+  // structure (input $1.25/MTok, cached-input $0.125/MTok, output $10/MTok).
+  // OpenAI does NOT publish cache-WRITE pricing (no cache-creation concept), so
+  // cacheWritePerMTok is 0 for all OpenAI rows.
+  {
+    modelId: 'gpt-5.5',
+    displayName: 'GPT-5.5',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5-codex',
+    displayName: 'GPT-5 Codex',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5.4',
+    displayName: 'GPT-5.4',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5.3-codex',
+    displayName: 'GPT-5.3 Codex',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5.2-codex',
+    displayName: 'GPT-5.2 Codex',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
+  {
+    modelId: 'gpt-5',
+    displayName: 'GPT-5',
+    inputPerMTok: 1.25,
+    outputPerMTok: 10.0,
+    cacheReadPerMTok: 0.125,
+    cacheWritePerMTok: 0,
+  },
 ]
 
 export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
