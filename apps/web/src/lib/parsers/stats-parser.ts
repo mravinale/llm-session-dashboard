@@ -261,8 +261,11 @@ async function mergeRecentSessions(stats: StatsCache): Promise<StatsCache> {
   const summaries = await scanAllSessionsWithPaths()
   const cutoffDate = extractDateString(stats.lastComputedDate)
 
-  // Filter to sessions active after the cutoff date
+  // Recent-enrichment only TOPS UP the Claude `stats-cache.json` (which is
+  // Claude-only). Codex aggregation is owned entirely by `combineWithCodexStats`,
+  // so including recent Codex sessions here would double-count them (FIX-2).
   const recentSessions = summaries.filter((s) => {
+    if (s.provider !== 'claude') return false
     const sessionDate = extractDateString(s.lastActiveAt ?? s.startedAt)
     return sessionDate > cutoffDate
   })

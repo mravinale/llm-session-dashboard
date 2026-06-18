@@ -475,7 +475,15 @@ export function mapDetail(
 
   let activeModel: string | undefined
   let activeTurnId: string | undefined
-  let currentTurn: Turn | null = null
+  // Codex emits tool calls BEFORE the assistant's text message within a single
+  // response (order: turn_context → reasoning → function_call(s) → message). So
+  // we buffer tool calls as they arrive and attach the whole buffer to the
+  // assistant `message` turn when it lands — keeping one logical assistant
+  // response as ONE turn (no per-tool inflation). On a user/developer turn
+  // boundary or end-of-stream with a non-empty buffer (assistant issued tools
+  // but produced no trailing text), we flush the buffer into one synthetic
+  // assistant turn. Tool calls therefore NEVER attach to a user/developer turn.
+  let pendingToolCalls: ToolCall[] = []
   let messageIndex = 0
   let snapshotIndex = 0
   // Track turn_ids already used so multi-message turns get unique uuids.
@@ -485,6 +493,22 @@ export function mapDetail(
   let lastTotalUsage: CodexTokenUsage | null = null
   let contextLimit: number | undefined
   let taskStartedContextWindow: number | undefined
+
+  // Flush any buffered tool calls into a single synthetic assistant turn. Used
+  // at a user/developer turn boundary and at end-of-stream when the assistant
+  // issued tools but never produced a trailing text message.
+  function flushPendingToolCalls(ts: string): void {
+    if (pendingToolCalls.length === 0) return
+    turns.push({
+      uuid: synthTurnId(activeTurnId, messageIndex, usedTurnIds),
+      type: 'assistant',
+      timestamp: ts,
+      model: activeModel,
+      toolCalls: pendingToolCalls,
+    })
+    messageIndex++
+    pendingToolCalls = []
+  }
 
   for (const line of lines) {
     const payload = line.payload as CodexPayload
@@ -509,24 +533,33 @@ export function mapDetail(
           const role = payload?.['role']
           const type = turnTypeForRole(role)
           if (type) {
+            // A user/developer/system message is a turn boundary: if the prior
+            // assistant response issued tools but produced no text message,
+            // flush those tools into a synthetic assistant turn BEFORE this one
+            // so ordering stays chronological. An assistant message instead
+            // adopts the buffered tools as its own toolCalls.
+            if (type !== 'assistant') flushPendingToolCalls(ts)
             const turn: Turn = {
               uuid: synthTurnId(activeTurnId, messageIndex, usedTurnIds),
               type,
               timestamp: ts,
               message: extractMessageText(payload?.['content']),
               model: activeModel,
-              toolCalls: [],
+              toolCalls: type === 'assistant' ? pendingToolCalls : [],
             }
+            if (type === 'assistant') pendingToolCalls = []
             turns.push(turn)
-            currentTurn = turn
             messageIndex++
           }
         } else if (pt === 'function_call' || pt === 'custom_tool_call') {
           const tool = toToolCall(payload)
           if (tool) {
-            // Tool calls between this message and the next belong to the turn
-            // that produced them (the most recent assistant/user turn).
-            if (currentTurn) currentTurn.toolCalls.push(tool)
+            // Codex emits tool calls BEFORE the assistant's text message, so we
+            // buffer them and attach the whole buffer when that message lands
+            // (or flush to a synthetic assistant turn at a user boundary / EOF).
+            // This keeps consecutive tool calls in one response on a SINGLE
+            // assistant turn and never attaches them to a user/developer turn.
+            pendingToolCalls.push(tool)
             toolFrequency[tool.toolName] =
               (toolFrequency[tool.toolName] ?? 0) + 1
 
@@ -648,6 +681,12 @@ export function mapDetail(
         break
     }
   }
+
+  // End of stream: the assistant ended with tool calls and no trailing text
+  // message — flush them into one final synthetic assistant turn so they stay
+  // visible and chronological.
+  const lastTs = lines.length > 0 ? (lines[lines.length - 1].timestamp ?? '') : ''
+  flushPendingToolCalls(lastTs)
 
   const totalTokens: TokenUsage = lastTotalUsage
     ? {

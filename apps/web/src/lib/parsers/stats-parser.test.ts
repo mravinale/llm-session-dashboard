@@ -552,6 +552,69 @@ describe('Codex stats integration', () => {
     )
   })
 
+  it('(b2) counts a recent Codex session exactly ONCE, not doubled (FIX-2)', async () => {
+    // Regression: a Codex session dated AFTER the Claude cache lastComputedDate
+    // used to be folded in twice — once by recent-session enrichment (which
+    // scanned ALL providers) and once by combineWithCodexStats. Enrichment is
+    // now restricted to Claude, so Codex contributes exactly once.
+    const { promises: fsMock } = await import('node:fs')
+    const { readDiskCache } = await import('@/lib/cache/disk-cache')
+    const { scanAllSessionsWithPaths } = await import('@/lib/scanner/session-scanner')
+    const parseStats = await freshParseStats()
+
+    // STALE Claude cache → triggers recent-session enrichment.
+    const claudeStats = makeStatsCache({
+      lastComputedDate: '2024-01-01T00:00:00.000Z',
+      modelUsage: {},
+      dailyActivity: [],
+      dailyModelTokens: [],
+      hourCounts: {},
+      totalSessions: 0,
+      totalMessages: 0,
+    })
+
+    // One Codex session, recent (after the cutoff), no Claude sessions.
+    const recentCodex = makeCodexSummary({
+      sessionId: 'codex-recent',
+      startedAt: '2026-06-15T13:00:00.000Z',
+      lastActiveAt: '2026-06-15T13:30:00.000Z',
+      filePath: '/codex/rollout-codex-recent.jsonl',
+    })
+
+    vi.mocked(fsMock.stat).mockResolvedValue(makeStat(1_000_000) as never)
+    vi.mocked(readDiskCache).mockReturnValue(claudeStats)
+    vi.mocked(scanAllSessionsWithPaths).mockResolvedValue([recentCodex])
+    await mockAdapters({
+      codex: async () =>
+        makeDetail({
+          sessionId: 'codex-recent',
+          provider: 'codex',
+          model: 'gpt-5-codex',
+          turnCount: 4,
+          tokensByModel: {
+            'gpt-5-codex': {
+              inputTokens: 800, outputTokens: 300,
+              cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+            },
+          },
+        }),
+    })
+
+    const result = await parseStats()
+
+    expect(result).not.toBeNull()
+    // Counted ONCE: 1 session, not 2; tokens not doubled.
+    expect(result!.totalSessions).toBe(1)
+    expect(result!.modelUsage['gpt-5-codex']).toEqual({
+      inputTokens: 800, outputTokens: 300,
+      cacheReadInputTokens: 0, cacheCreationInputTokens: 0,
+    })
+    const day = result!.dailyActivity.find((d) => d.date === '2026-06-15')
+    expect(day?.sessionCount).toBe(1)
+    const dayTokens = result!.dailyModelTokens.find((d) => d.date === '2026-06-15')
+    expect(dayTokens?.tokensByModel['gpt-5-codex']).toBe(1100) // 800+300, once
+  })
+
   it('(c) leaves Claude stats unchanged when there is no Codex contribution (merge no-op)', async () => {
     const { promises: fsMock } = await import('node:fs')
     const { readDiskCache } = await import('@/lib/cache/disk-cache')

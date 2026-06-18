@@ -1,15 +1,12 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { ACTIVE_THRESHOLD_MS } from '@/lib/scanner/active-detector'
 import {
   getCodexSources,
   getCodexSessionsDir,
 } from '@/lib/adapters/codex/codex-path'
 import { scanCodexSummaries } from '@/lib/adapters/codex/codex-scanner'
-import {
-  readLastEventType,
-  parseDetail as parseCodexDetail,
-} from '@/lib/adapters/codex/codex-parser'
+import { isCodexSessionActive } from '@/lib/adapters/codex/codex-active'
+import { parseDetail as parseCodexDetail } from '@/lib/adapters/codex/codex-parser'
 import type { SessionDetail } from '@/lib/parsers/types'
 import type {
   SessionSourceAdapter,
@@ -36,24 +33,12 @@ async function scanSummaries(
 }
 
 /**
- * Codex has no lock directory, so activity is: the file was modified recently
- * (mtime within `ACTIVE_THRESHOLD_MS`, reused from `active-detector.ts`) AND the
- * session's last event is NOT a terminal `event_msg`/`task_complete`.
- *
- * ~21/22 real sessions end with `task_complete`, making this reliable (R6).
+ * Whether a Codex session is currently active. Delegates to the shared
+ * `isCodexSessionActive` rule so the adapter and the scanner's per-summary
+ * stamping (`scanCodexSummaries`) share ONE implementation.
  */
 async function isActive(filePath: string): Promise<boolean> {
-  const stat = await fs.promises.stat(filePath).catch(() => null)
-  if (!stat) return false
-
-  const age = Date.now() - stat.mtimeMs
-  if (age > ACTIVE_THRESHOLD_MS) return false
-
-  const last = await readLastEventType(filePath).catch(() => null)
-  if (last && last.type === 'event_msg' && last.payloadType === 'task_complete') {
-    return false
-  }
-  return true
+  return isCodexSessionActive(filePath)
 }
 
 async function parseDetail(

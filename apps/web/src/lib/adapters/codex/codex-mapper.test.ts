@@ -541,7 +541,9 @@ describe('mapDetail', () => {
     expect(detail.tokensByModel['gpt-5.5'].inputTokens).toBe(1400)
   })
 
-  it('groups tool calls into the owning turn and counts toolFrequency', () => {
+  it('groups tool calls into the owning assistant turn and counts toolFrequency', () => {
+    // Real Codex order within a response: tool calls PRECEDE the assistant text
+    // message. The buffer attaches both to the single assistant turn.
     const lines: CodexLine[] = [
       sessionMeta(),
       turnContext('gpt-5.4', '2026-06-01T10:00:01.000Z'),
@@ -553,7 +555,7 @@ describe('mapDetail', () => {
         '2026-06-01T10:00:02.500Z',
       ),
       customToolCallDetail('apply_patch', '*** Begin Patch', 'call_a2', '2026-06-01T10:00:04.000Z'),
-      assistantMessage('done', '2026-06-01T10:00:05.000Z'),
+      assistantMessage('on it', '2026-06-01T10:00:05.000Z'),
     ]
 
     const detail = mapDetail(lines, detailCtx())
@@ -561,27 +563,154 @@ describe('mapDetail', () => {
     // One turn per message (user + assistant), reasoning not separate.
     expect(detail.turns).toHaveLength(2)
     const userTurn = detail.turns[0]
+    const assistantTurn = detail.turns[1]
     expect(userTurn.type).toBe('user')
-    // Tool calls between the user message and the next message fold into the user turn.
-    expect(userTurn.toolCalls.map((t) => t.toolName)).toEqual([
+    // Codex tool calls are issued by the assistant — they attach to the assistant
+    // turn, never the user turn (FIX-5).
+    expect(userTurn.toolCalls).toHaveLength(0)
+    expect(assistantTurn.type).toBe('assistant')
+    expect(assistantTurn.toolCalls.map((t) => t.toolName)).toEqual([
       'exec_command',
       'apply_patch',
     ])
-    expect(userTurn.toolCalls[0].toolUseId).toBe('call_a1')
-    expect(userTurn.toolCalls[0].input).toEqual({ cmd: 'ls' })
+    expect(assistantTurn.toolCalls[0].toolUseId).toBe('call_a1')
+    expect(assistantTurn.toolCalls[0].input).toEqual({ cmd: 'ls' })
     expect(detail.toolFrequency).toEqual({ exec_command: 1, apply_patch: 1 })
   })
 
-  it('parses function_call arguments, falling back to {} on invalid JSON', () => {
+  it('attaches tool calls to an assistant turn, not the user turn before them (FIX-5)', () => {
+    // Real Codex order: user message → function_call → assistant message. The
+    // tool call arrives BEFORE the assistant text, so it buffers and attaches to
+    // the assistant turn when its message lands — never the preceding user turn.
+    // Result: 2 turns [user, assistant(tool)], no inflation.
     const lines: CodexLine[] = [
       sessionMeta(),
       turnContext('gpt-5.4', '2026-06-01T10:00:01.000Z'),
-      assistantMessage('working', '2026-06-01T10:00:01.600Z'),
-      functionCallDetail('exec_command', 'not-json{', 'call_bad', '2026-06-01T10:00:02.500Z'),
+      userMessage('do the thing', '2026-06-01T10:00:01.600Z'),
+      functionCallDetail('exec_command', '{"cmd":"ls"}', 'call_a1', '2026-06-01T10:00:02.500Z'),
+      assistantMessage('done', '2026-06-01T10:00:05.000Z'),
     ]
 
     const detail = mapDetail(lines, detailCtx())
-    expect(detail.turns[0].toolCalls[0].input).toEqual({})
+
+    // One logical assistant response = ONE assistant turn (no split).
+    expect(detail.turns).toHaveLength(2)
+    expect(detail.turns[0].type).toBe('user')
+    // The user turn never receives a tool call.
+    expect(detail.turns[0].toolCalls).toHaveLength(0)
+    expect(detail.turns[1].type).toBe('assistant')
+    expect(detail.turns[1].toolCalls.map((t) => t.toolName)).toEqual([
+      'exec_command',
+    ])
+    expect(detail.toolFrequency).toEqual({ exec_command: 1 })
+  })
+
+  it('keeps consecutive tool calls before the assistant message on ONE assistant turn (buffer, no inflation)', () => {
+    // Two function_calls in one response, both preceding the assistant message,
+    // must share that response's single assistant turn — not split into two.
+    const lines: CodexLine[] = [
+      sessionMeta(),
+      turnContext('gpt-5.4', '2026-06-01T10:00:01.000Z'),
+      userMessage('do the thing', '2026-06-01T10:00:01.600Z'),
+      functionCallDetail('exec_command', '{"cmd":"ls"}', 'call_a1', '2026-06-01T10:00:02.000Z'),
+      functionCallDetail('exec_command', '{"cmd":"pwd"}', 'call_a2', '2026-06-01T10:00:02.500Z'),
+      assistantMessage('done', '2026-06-01T10:00:05.000Z'),
+    ]
+
+    const detail = mapDetail(lines, detailCtx())
+
+    expect(detail.turns).toHaveLength(2)
+    expect(detail.turns[0].type).toBe('user')
+    expect(detail.turns[1].type).toBe('assistant')
+    // Both tool calls share the single assistant turn.
+    expect(detail.turns[1].toolCalls.map((t) => t.toolUseId)).toEqual([
+      'call_a1',
+      'call_a2',
+    ])
+    expect(detail.toolFrequency).toEqual({ exec_command: 2 })
+  })
+
+  it('flushes buffered tools to a synthetic assistant turn BEFORE the next user turn when no assistant message followed (FIX-5)', () => {
+    // Assistant issued tools but produced no text message before the next user
+    // turn (rare). The buffered tools flush into one synthetic assistant turn,
+    // ordered BEFORE the new user turn — never attached to a user turn.
+    const lines: CodexLine[] = [
+      sessionMeta(),
+      turnContext('gpt-5.4', '2026-06-01T10:00:01.000Z'),
+      userMessage('first', '2026-06-01T10:00:01.600Z'),
+      functionCallDetail('exec_command', '{"cmd":"ls"}', 'call_a1', '2026-06-01T10:00:02.000Z'),
+      userMessage('second', '2026-06-01T10:00:03.000Z'),
+    ]
+
+    const detail = mapDetail(lines, detailCtx())
+
+    expect(detail.turns.map((t) => t.type)).toEqual([
+      'user',
+      'assistant',
+      'user',
+    ])
+    // The middle (synthetic) assistant turn holds the tool; user turns hold none.
+    expect(detail.turns[0].toolCalls).toHaveLength(0)
+    expect(detail.turns[1].toolCalls.map((t) => t.toolName)).toEqual([
+      'exec_command',
+    ])
+    expect(detail.turns[2].toolCalls).toHaveLength(0)
+    expect(detail.toolFrequency).toEqual({ exec_command: 1 })
+  })
+
+  it('flushes trailing tools at end of stream into one synthetic assistant turn (FIX-5)', () => {
+    // The assistant ended the session with tool calls and no trailing text
+    // message: a single synthetic assistant turn holds them (not dropped).
+    const lines: CodexLine[] = [
+      sessionMeta(),
+      turnContext('gpt-5.4', '2026-06-01T10:00:01.000Z'),
+      userMessage('do the thing', '2026-06-01T10:00:01.600Z'),
+      functionCallDetail('exec_command', '{"cmd":"ls"}', 'call_a1', '2026-06-01T10:00:02.000Z'),
+      functionCallDetail('exec_command', '{"cmd":"pwd"}', 'call_a2', '2026-06-01T10:00:02.500Z'),
+    ]
+
+    const detail = mapDetail(lines, detailCtx())
+
+    expect(detail.turns.map((t) => t.type)).toEqual(['user', 'assistant'])
+    expect(detail.turns[0].toolCalls).toHaveLength(0)
+    expect(detail.turns[1].toolCalls.map((t) => t.toolUseId)).toEqual([
+      'call_a1',
+      'call_a2',
+    ])
+    expect(detail.toolFrequency).toEqual({ exec_command: 2 })
+  })
+
+  it('attaches a tool call issued before any message to a synthesized assistant turn (FIX-5)', () => {
+    // function_call before ANY message: it buffers and flushes at end-of-stream
+    // into one synthetic assistant turn rather than being dropped.
+    const lines: CodexLine[] = [
+      sessionMeta(),
+      turnContext('gpt-5.4', '2026-06-01T10:00:01.000Z'),
+      functionCallDetail('exec_command', '{"cmd":"pwd"}', 'call_x', '2026-06-01T10:00:01.500Z'),
+    ]
+
+    const detail = mapDetail(lines, detailCtx())
+
+    expect(detail.turns).toHaveLength(1)
+    expect(detail.turns[0].type).toBe('assistant')
+    expect(detail.turns[0].toolCalls.map((t) => t.toolName)).toEqual(['exec_command'])
+    expect(detail.toolFrequency).toEqual({ exec_command: 1 })
+  })
+
+  it('parses function_call arguments, falling back to {} on invalid JSON', () => {
+    // Real Codex order: the function_call precedes the assistant message, so it
+    // buffers onto that assistant turn.
+    const lines: CodexLine[] = [
+      sessionMeta(),
+      turnContext('gpt-5.4', '2026-06-01T10:00:01.000Z'),
+      userMessage('do it', '2026-06-01T10:00:01.500Z'),
+      functionCallDetail('exec_command', 'not-json{', 'call_bad', '2026-06-01T10:00:02.500Z'),
+      assistantMessage('working', '2026-06-01T10:00:03.000Z'),
+    ]
+
+    const detail = mapDetail(lines, detailCtx())
+    const assistantTurn = detail.turns.find((t) => t.type === 'assistant')!
+    expect(assistantTurn.toolCalls[0].input).toEqual({})
   })
 
   it('folds reasoning into the assistant turn (no separate reasoning turn)', () => {

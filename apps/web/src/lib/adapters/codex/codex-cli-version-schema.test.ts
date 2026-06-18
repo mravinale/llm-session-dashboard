@@ -274,16 +274,20 @@ describe('cli_version schema drift — mapDetail', () => {
     expect(detail.branch).toBeNull()
     expect(detail.isInteractive).toBe(true)
 
-    // Turns
+    // Turns: user + assistant (one logical assistant response, even though the
+    // function_call precedes the assistant text message in Codex order).
     expect(detail.turns).toHaveLength(2)
     expect(detail.turns[0].type).toBe('user')
     expect(detail.turns[0].message).toBe('Explain the build pipeline')
     expect(detail.turns[1].type).toBe('assistant')
     expect(detail.turns[1].message).toBe('The build runs tsc then vite build.')
 
-    // Tool call attached to user turn
-    expect(detail.turns[0].toolCalls).toHaveLength(1)
-    expect(detail.turns[0].toolCalls[0].toolName).toBe('exec_command')
+    // Tool call belongs to the ASSISTANT turn (issued by the assistant), never
+    // the preceding user turn — the function_call buffers until the assistant
+    // message lands.
+    expect(detail.turns[0].toolCalls).toHaveLength(0)
+    expect(detail.turns[1].toolCalls).toHaveLength(1)
+    expect(detail.turns[1].toolCalls[0].toolName).toBe('exec_command')
 
     // Tokens from last token_count (old schema has no reasoning_output_tokens)
     expect(detail.totalTokens.inputTokens).toBe(500)
@@ -328,10 +332,14 @@ describe('cli_version schema drift — mapDetail', () => {
     expect(detail.title).toBe('Add health-check endpoint')
     expect(detail.branch).toBeNull()
 
-    // Turns: user + assistant
+    // Turns: user + assistant; the function_call is buffered onto the assistant
+    // turn (it precedes the assistant text message in Codex order).
     expect(detail.turns).toHaveLength(2)
     expect(detail.turns[0].type).toBe('user')
+    expect(detail.turns[0].toolCalls).toHaveLength(0)
     expect(detail.turns[1].type).toBe('assistant')
+    expect(detail.turns[1].toolCalls).toHaveLength(1)
+    expect(detail.turns[1].toolCalls[0].toolName).toBe('exec_command')
 
     // Cumulative last token_count wins (2600/350/160 not 1200/80/40)
     expect(detail.totalTokens.inputTokens).toBe(2600)

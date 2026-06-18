@@ -4,7 +4,8 @@ import {
   getCodexSessionsDir,
   getCodexSessionIndexPath,
 } from '@/lib/adapters/codex/codex-path'
-import { parseSummary, parseOutputTokens } from '@/lib/adapters/codex/codex-parser'
+import { parseSummary } from '@/lib/adapters/codex/codex-parser'
+import { isCodexSessionActive } from '@/lib/adapters/codex/codex-active'
 import type { SessionSummary } from '@/lib/parsers/types'
 import type { ProviderSource, SessionSummaryWithPath } from '@/lib/adapters/adapter'
 
@@ -129,7 +130,13 @@ export async function scanCodexSummaries(
     const cacheKey = `codex:${sessionId}`
     const cached = summaryCache.get(cacheKey)
     if (cached && cached.mtimeMs === stat.mtimeMs) {
-      summaries.push(stamp(cached.summary, source, filePath))
+      // Active state is time-sensitive (mtime freshness + last-event rule), so
+      // recompute it on a cache hit rather than reusing a stale flag — mirrors
+      // the Claude scanner's `isSessionActive` refresh on cache-hit.
+      const active = await isCodexSessionActive(filePath)
+      summaries.push(
+        stamp({ ...cached.summary, isActive: active }, source, filePath),
+      )
       continue
     }
 
@@ -137,9 +144,11 @@ export async function scanCodexSummaries(
     const summary = await parseSummary(filePath, sessionId, stat.size, title)
     if (!summary) continue
 
-    summary.outputTokens = await parseOutputTokens(filePath).catch(
-      () => undefined,
-    )
+    // `outputTokens` is already derived by `mapSummary` from the same tail window
+    // (FIX-4: don't re-read the tail and clobber a good value with undefined).
+    // Stamp active using the shared Codex rule (FIX-1: the generic scan loop does
+    // NOT set isActive — each adapter's scanSummaries owns it, like Claude's).
+    summary.isActive = await isCodexSessionActive(filePath)
 
     summaryCache.set(cacheKey, { mtimeMs: stat.mtimeMs, summary })
     summaries.push(stamp(summary, source, filePath))

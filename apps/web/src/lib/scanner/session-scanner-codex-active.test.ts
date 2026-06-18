@@ -160,9 +160,10 @@ describe('getActiveSessions — Codex active session flows through the query pat
   })
 
   it('Codex summary has isActive:false stripped from result when task_complete was last event', async () => {
-    // The adapter already sets isActive=false during scanSummaries (after calling
-    // codexAdapter.isActive). Here we confirm that summaries with isActive:false
-    // never appear in getActiveSessions regardless of provider.
+    // `scanCodexSummaries` stamps isActive during the scan via the shared Codex
+    // active rule — that REAL stamping is covered by codex-scanner.test.ts. Here
+    // we mock `scanSummaries` and only confirm that summaries arriving with
+    // isActive:false never appear in getActiveSessions, regardless of provider.
     const completedCodex = makeSummary({
       provider: 'codex',
       sessionId: 'codex-complete-001',

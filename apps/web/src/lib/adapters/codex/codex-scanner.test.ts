@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { scanCodexSummaries } from './codex-scanner'
 import type { ProviderSource } from '@/lib/adapters/adapter'
@@ -76,5 +78,106 @@ describe('scanCodexSummaries', () => {
     expect(second.map((s) => s.sessionId).sort()).toEqual(
       first.map((s) => s.sessionId).sort(),
     )
+  })
+})
+
+/**
+ * FIX-1 / FIX-4 regression: the REAL `scanCodexSummaries` must stamp `isActive`
+ * (the generic scan loop does not — each adapter owns it, like Claude's) and must
+ * NOT clobber a derived `outputTokens` with a redundant second tail read.
+ *
+ * These run against a temp dir so mtime (freshness) is controllable; the real
+ * `~/.codex` is never touched. We do NOT mock `scanCodexSummaries`.
+ */
+describe('scanCodexSummaries — isActive + outputTokens (real path)', () => {
+  let tmpHome: string
+
+  function writeRollout(name: string, lines: string[], ageMs: number): void {
+    const dateDir = path.join(tmpHome, 'sessions', '2026', '06', '16')
+    fs.mkdirSync(dateDir, { recursive: true })
+    const filePath = path.join(dateDir, name)
+    fs.writeFileSync(filePath, lines.join('\n') + '\n')
+    const when = Date.now() - ageMs
+    fs.utimesSync(filePath, when / 1000, when / 1000)
+  }
+
+  function tmpSource(): ProviderSource {
+    return {
+      provider: 'codex',
+      id: 'codex-primary',
+      label: 'Codex',
+      rootDir: tmpHome,
+      platform: 'macos',
+      available: true,
+    }
+  }
+
+  const META = (id: string) =>
+    JSON.stringify({
+      timestamp: '2026-06-16T10:00:00.000Z',
+      type: 'session_meta',
+      payload: { id, cwd: '/tmp/proj', cli_version: '0.137.0' },
+    })
+  const TOKEN_COUNT = JSON.stringify({
+    timestamp: '2026-06-16T10:00:05.000Z',
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      info: {
+        total_token_usage: { input_tokens: 1000, output_tokens: 742 },
+        model_context_window: 258400,
+      },
+    },
+  })
+  const AGENT_MESSAGE = JSON.stringify({
+    timestamp: '2026-06-16T10:00:06.000Z',
+    type: 'event_msg',
+    payload: { type: 'agent_message', message: 'still working' },
+  })
+  const TASK_COMPLETE = JSON.stringify({
+    timestamp: '2026-06-16T10:00:07.000Z',
+    type: 'event_msg',
+    payload: { type: 'task_complete' },
+  })
+
+  beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-scanner-active-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpHome, { recursive: true, force: true })
+  })
+
+  it('stamps isActive:true for a fresh, non-terminal session', async () => {
+    writeRollout(
+      'rollout-2026-06-16T10-00-00-019ed000-0000-7000-8000-00000000aaaa.jsonl',
+      [META('019ed000-0000-7000-8000-00000000aaaa'), TOKEN_COUNT, AGENT_MESSAGE],
+      1000, // 1s old → fresh
+    )
+    const summaries = await scanCodexSummaries(tmpSource())
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0].isActive).toBe(true)
+  })
+
+  it('stamps isActive:false for a fresh session ended by task_complete', async () => {
+    writeRollout(
+      'rollout-2026-06-16T10-00-00-019ed000-0000-7000-8000-00000000bbbb.jsonl',
+      [META('019ed000-0000-7000-8000-00000000bbbb'), TOKEN_COUNT, TASK_COMPLETE],
+      1000, // fresh, but terminal last event
+    )
+    const summaries = await scanCodexSummaries(tmpSource())
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0].isActive).toBe(false)
+  })
+
+  it('keeps the tail-derived outputTokens (does not clobber with undefined)', async () => {
+    writeRollout(
+      'rollout-2026-06-16T10-00-00-019ed000-0000-7000-8000-00000000cccc.jsonl',
+      [META('019ed000-0000-7000-8000-00000000cccc'), TOKEN_COUNT, AGENT_MESSAGE],
+      1000,
+    )
+    const summaries = await scanCodexSummaries(tmpSource())
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0].outputTokens).toBe(742)
   })
 })
