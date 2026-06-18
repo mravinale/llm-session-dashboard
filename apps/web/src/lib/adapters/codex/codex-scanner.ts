@@ -148,6 +148,19 @@ export async function scanCodexSummaries(
   return summaries
 }
 
+/**
+ * Look up a single session's title (`thread_name`) from `session_index.jsonl`.
+ * Reuses the mtime-guarded title index cache. Returns `undefined` when the
+ * index is missing or has no entry for this session (the parser falls back to
+ * the first user message / cwd basename via the mapper's title chain).
+ */
+export function lookupCodexTitle(
+  home: string,
+  sessionId: string,
+): string | undefined {
+  return loadTitleIndex(home).get(sessionId)
+}
+
 function stamp(
   summary: SessionSummary,
   source: ProviderSource,

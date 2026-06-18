@@ -25,7 +25,7 @@ export function SessionCard({ session }: { session: SessionSummary }) {
     <Link
       to="/sessions/$sessionId"
       params={{ sessionId: session.sessionId }}
-      search={{ project: session.projectPath }}
+      search={{ project: session.projectPath, provider: session.provider }}
       className="group block rounded-xl border border-gray-800 bg-gray-900/50 p-4 transition-all hover:border-gray-700 hover:bg-gray-900"
     >
       <div className="flex items-start justify-between gap-3">

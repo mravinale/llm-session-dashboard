@@ -63,6 +63,8 @@ export interface TokenUsage {
   outputTokens: number
   cacheReadInputTokens: number
   cacheCreationInputTokens: number
+  /** Codex-only reasoning output tokens, for display; undefined for Claude. */
+  reasoningOutputTokens?: number
 }
 
 export interface AgentInvocation {

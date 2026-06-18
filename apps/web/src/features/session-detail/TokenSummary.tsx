@@ -11,6 +11,17 @@ export function TokenSummary({ tokens }: { tokens: TokenUsage }) {
   const items = [
     { label: 'Input (non-cached)', value: tokens.inputTokens, color: 'text-brand-400' },
     { label: 'Output', value: tokens.outputTokens, color: 'text-emerald-400' },
+    // Reasoning is Codex-only — shown only when present and non-zero, so Claude's
+    // display is unchanged (reasoningOutputTokens is undefined for Claude).
+    ...(tokens.reasoningOutputTokens
+      ? [
+          {
+            label: 'Reasoning',
+            value: tokens.reasoningOutputTokens,
+            color: 'text-purple-400',
+          },
+        ]
+      : []),
     {
       label: 'Cache Read',
       value: tokens.cacheReadInputTokens,

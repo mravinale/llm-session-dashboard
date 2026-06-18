@@ -1,11 +1,15 @@
+import * as fs from 'node:fs'
+import * as readline from 'node:readline'
 import { readHeadLines, readTailLines } from '@/lib/adapters/shared/jsonl-io'
 import { extractProjectName } from '@/lib/utils/claude-path'
 import {
   codexLineSchema,
   type CodexLine,
 } from '@/lib/adapters/codex/codex-raw.types'
-import { mapSummary } from '@/lib/adapters/codex/codex-mapper'
-import type { SessionSummary } from '@/lib/parsers/types'
+import { mapSummary, mapDetail } from '@/lib/adapters/codex/codex-mapper'
+import { getCodexHome } from '@/lib/adapters/codex/codex-path'
+import { lookupCodexTitle } from '@/lib/adapters/codex/codex-scanner'
+import type { SessionSummary, SessionDetail } from '@/lib/parsers/types'
 
 /**
  * Codex I/O layer (P1): owns `fs`/readline/head-tail and feeds validated
@@ -68,6 +72,43 @@ export async function parseSummary(
     fileSizeBytes,
     title,
     extractProjectName,
+  })
+}
+
+/**
+ * Full streaming detail parse (Phase 3): a single `readline` pass over the
+ * rollout file (no whole-file load), validating each line and collecting the
+ * envelopes, then delegating to the PURE `mapDetail`. The session title is
+ * loaded from the scanner's `session_index` helper and passed via ctx.
+ */
+export async function parseDetail(
+  filePath: string,
+  sessionId: string,
+  projectPath: string,
+  projectName: string,
+): Promise<SessionDetail> {
+  const lines: CodexLine[] = []
+  const stream = fs.createReadStream(filePath, { encoding: 'utf-8' })
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity })
+
+  try {
+    for await (const raw of rl) {
+      if (!raw) continue
+      const envelope = parseLine(raw)
+      if (envelope) lines.push(envelope)
+    }
+  } finally {
+    rl.close()
+    stream.destroy()
+  }
+
+  const title = lookupCodexTitle(getCodexHome(), sessionId)
+
+  return mapDetail(lines, {
+    sessionId,
+    projectPath,
+    projectName,
+    title,
   })
 }
 
