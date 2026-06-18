@@ -4,14 +4,18 @@ import type { SessionSummary } from '@/lib/parsers/types'
 import { formatDuration, formatRelativeTime, formatBytes } from '@/lib/utils/format'
 import { usePrivacy } from '@/features/privacy/PrivacyContext'
 import { SourceBadge } from '@/components/ui/SourceBadge'
+import { ProviderBadge } from '@/components/ui/ProviderBadge'
+import { getResumeCommand } from '@/lib/adapters/provider-registry'
 import { StatusBadge } from './StatusBadge'
 import { RunningTimer } from './RunningTimer'
 
 export function SessionCard({ session }: { session: SessionSummary }) {
   const { privacyMode, anonymizePath, anonymizeProjectName, anonymizeBranch } = usePrivacy()
-  const displayName = privacyMode
+  const projectLabel = privacyMode
     ? anonymizeProjectName(session.projectName)
     : session.projectName
+  // Codex sessions carry a human-readable title; fall back to the project name.
+  const displayName = session.title ?? projectLabel
   const displayCwd = session.cwd
     ? anonymizePath(session.cwd, session.projectName)
     : null
@@ -31,6 +35,7 @@ export function SessionCard({ session }: { session: SessionSummary }) {
               {displayName}
             </h3>
             <StatusBadge isActive={session.isActive} />
+            <ProviderBadge provider={session.provider} />
             {session.sourceLabel && (
               <SourceBadge sourceLabel={session.sourceLabel} platform={session.sourcePlatform} />
             )}
@@ -42,7 +47,11 @@ export function SessionCard({ session }: { session: SessionSummary }) {
             </p>
           )}
 
-          <SessionIdCopyRow sessionId={session.sessionId} interactive={session.isInteractive} />
+          <SessionIdCopyRow
+            sessionId={session.sessionId}
+            resumeCommand={getResumeCommand(session.provider, session.sessionId)}
+            interactive={session.isInteractive}
+          />
         </div>
 
         <span className="shrink-0 text-xs text-gray-500">
@@ -81,7 +90,15 @@ export function SessionCard({ session }: { session: SessionSummary }) {
   )
 }
 
-function SessionIdCopyRow({ sessionId, interactive }: { sessionId: string; interactive: boolean }) {
+function SessionIdCopyRow({
+  sessionId,
+  resumeCommand,
+  interactive,
+}: {
+  sessionId: string
+  resumeCommand: string
+  interactive: boolean
+}) {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -93,7 +110,7 @@ function SessionIdCopyRow({ sessionId, interactive }: { sessionId: string; inter
     e.stopPropagation()
     e.preventDefault()
     try {
-      await navigator.clipboard.writeText(`claude --resume ${sessionId}`)
+      await navigator.clipboard.writeText(resumeCommand)
       setCopied(true)
       clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => setCopied(false), 2000)

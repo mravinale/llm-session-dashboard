@@ -266,6 +266,127 @@ describe('paginateAndFilterSessions', () => {
     })
   })
 
+  describe('provider filter', () => {
+    it("should keep only Codex sessions when provider is 'codex'", async () => {
+      const sessions = [
+        createMockSession({ sessionId: 'a', provider: 'claude' }),
+        createMockSession({ sessionId: 'b', provider: 'codex' }),
+        createMockSession({ sessionId: 'c', provider: 'codex' }),
+      ]
+
+      const result = await paginateAndFilterSessions(sessions, {
+        page: 1,
+        pageSize: 10,
+        search: '',
+        status: 'all',
+        project: '',
+        provider: 'codex',
+        sort: 'lastActive',
+        sortDir: 'desc',
+      })
+
+      expect(result.sessions).toHaveLength(2)
+      expect(result.sessions.every((s) => s.provider === 'codex')).toBe(true)
+      expect(result.totalCount).toBe(2)
+    })
+
+    it("should keep only Claude sessions when provider is 'claude'", async () => {
+      const sessions = [
+        createMockSession({ sessionId: 'a', provider: 'claude' }),
+        createMockSession({ sessionId: 'b', provider: 'codex' }),
+      ]
+
+      const result = await paginateAndFilterSessions(sessions, {
+        page: 1,
+        pageSize: 10,
+        search: '',
+        status: 'all',
+        project: '',
+        provider: 'claude',
+        sort: 'lastActive',
+        sortDir: 'desc',
+      })
+
+      expect(result.sessions).toHaveLength(1)
+      expect(result.sessions[0].provider).toBe('claude')
+    })
+
+    it("should return all providers when provider is 'all'", async () => {
+      const sessions = [
+        createMockSession({ sessionId: 'a', provider: 'claude' }),
+        createMockSession({ sessionId: 'b', provider: 'codex' }),
+      ]
+
+      const result = await paginateAndFilterSessions(sessions, {
+        page: 1,
+        pageSize: 10,
+        search: '',
+        status: 'all',
+        project: '',
+        provider: 'all',
+        sort: 'lastActive',
+        sortDir: 'desc',
+      })
+
+      expect(result.sessions).toHaveLength(2)
+    })
+
+    it('should default to all providers when provider is omitted (unchanged Claude behavior)', async () => {
+      const sessions = [
+        createMockSession({ sessionId: 'a', provider: 'claude' }),
+        createMockSession({ sessionId: 'b', provider: 'codex' }),
+      ]
+
+      const result = await paginateAndFilterSessions(sessions, {
+        page: 1,
+        pageSize: 10,
+        search: '',
+        status: 'all',
+        project: '',
+        sort: 'lastActive',
+        sortDir: 'desc',
+      })
+
+      expect(result.sessions).toHaveLength(2)
+    })
+
+    it('should report distinct providers present in registry order', async () => {
+      const sessions = [
+        createMockSession({ sessionId: 'a', provider: 'codex' }),
+        createMockSession({ sessionId: 'b', provider: 'claude' }),
+        createMockSession({ sessionId: 'c', provider: 'codex' }),
+      ]
+
+      const result = await paginateAndFilterSessions(sessions, {
+        page: 1,
+        pageSize: 10,
+        search: '',
+        status: 'all',
+        project: '',
+        sort: 'lastActive',
+        sortDir: 'desc',
+      })
+
+      expect(result.providers).toEqual(['claude', 'codex'])
+    })
+
+    it('should report a single provider when only one is present', async () => {
+      const sessions = [createMockSession({ provider: 'claude' })]
+
+      const result = await paginateAndFilterSessions(sessions, {
+        page: 1,
+        pageSize: 10,
+        search: '',
+        status: 'all',
+        project: '',
+        sort: 'lastActive',
+        sortDir: 'desc',
+      })
+
+      expect(result.providers).toEqual(['claude'])
+    })
+  })
+
   describe('combined filters', () => {
     it('should apply search, status, and project filters together', async () => {
       const sessions = [
