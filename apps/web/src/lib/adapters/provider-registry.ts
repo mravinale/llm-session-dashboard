@@ -29,8 +29,8 @@ export interface ProviderDescriptor {
 /**
  * The complete set of known providers.
  *
- * Codex is added in Phase 1. Its badge color is teal/emerald to stay distinct
- * from the platform `SourceBadge` colors (which use gray/blue/amber) and from
+ * Codex's badge color is violet to match its violet→indigo cloud icon, and to
+ * stay distinct from the platform `SourceBadge` colors (gray/blue/amber) and
  * the Claude brand-terracotta badge.
  */
 export const PROVIDERS = [
@@ -43,7 +43,7 @@ export const PROVIDERS = [
   {
     id: 'codex',
     label: 'Codex',
-    badgeClass: 'bg-emerald-700/25 text-emerald-300 border border-emerald-700/40',
+    badgeClass: 'bg-violet-700/25 text-violet-300 border border-violet-700/40',
     resumeCommand: (sessionId: string) => `codex resume ${sessionId}`,
   },
 ] as const satisfies readonly ProviderDescriptor[]
