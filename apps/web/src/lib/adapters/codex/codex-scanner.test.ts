@@ -34,6 +34,18 @@ describe('scanCodexSummaries', () => {
     }
   })
 
+  it('omits sourceLabel/sourcePlatform for the primary source (single badge)', async () => {
+    // The primary Codex source must NOT stamp source fields, so SessionCard
+    // renders only the ProviderBadge ("Codex") and not a second SourceBadge.
+    // This mirrors the Claude adapter's primary-vs-secondary rule.
+    const summaries = await scanCodexSummaries(fixtureSource)
+    expect(summaries.length).toBeGreaterThan(0)
+    for (const s of summaries) {
+      expect(s.sourceLabel).toBeUndefined()
+      expect(s.sourcePlatform).toBeUndefined()
+    }
+  })
+
   it('extracts the uuid session id from the rollout filename / session_meta', async () => {
     const summaries = await scanCodexSummaries(fixtureSource)
     const ids = summaries.map((s) => s.sessionId).sort()

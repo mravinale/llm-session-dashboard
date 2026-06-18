@@ -170,17 +170,30 @@ export function lookupCodexTitle(
   return loadTitleIndex(home).get(sessionId)
 }
 
+/**
+ * Stamp provider + (for non-primary sources) the source fields, and attach the
+ * file path. The PRIMARY Codex source intentionally omits `sourceLabel` /
+ * `sourcePlatform` so `SourceBadge` does not render alongside `ProviderBadge`
+ * (a single-machine Codex card shows exactly one "Codex" badge). This mirrors
+ * the Claude adapter's primary-vs-secondary rule. Non-primary (future WSL)
+ * sources keep stamping for parity. `sourceId` stays for display/diagnostics —
+ * the dedup key is `${provider}:${sessionId}` and the cache key is
+ * `codex:${sessionId}`, so it is not load-bearing for either.
+ */
 function stamp(
   summary: SessionSummary,
   source: ProviderSource,
   filePath: string,
 ): SessionSummaryWithPath {
-  return {
+  const isPrimary = source.id === 'codex-primary'
+  const base: SessionSummary = {
     ...summary,
     provider: 'codex',
     sourceId: source.id,
-    sourceLabel: source.label,
-    sourcePlatform: source.platform,
-    filePath,
   }
+  if (!isPrimary) {
+    base.sourceLabel = source.label
+    base.sourcePlatform = source.platform
+  }
+  return { ...base, filePath }
 }
