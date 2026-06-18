@@ -17,7 +17,6 @@ vi.mock('@/lib/adapters/codex/codex-path', async (importOriginal) => {
   return { ...actual, getCodexSources: codexSourcesMock.getCodexSources }
 })
 
-// eslint-disable-next-line import/first -- must follow the vi.mock above
 import { codexAdapter } from './codex-adapter'
 
 /**

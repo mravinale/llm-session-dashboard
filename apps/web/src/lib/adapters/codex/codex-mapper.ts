@@ -5,6 +5,8 @@ import type {
   ToolCall,
   TokenUsage,
   Turn,
+  AgentInvocation,
+  TaskItem,
 } from '@/lib/parsers/types'
 import type { SessionSummary } from '@/lib/parsers/types'
 import { buildContextWindowData } from '@/lib/adapters/shared/context-window'
@@ -348,6 +350,98 @@ function parseExitCode(output: unknown): number | null {
   return Number.isFinite(code) && code !== 0 ? code : null
 }
 
+/** Safely JSON.parse a `function_call.arguments` string into a record. */
+function parseArgs(args: unknown): Record<string, unknown> | null {
+  if (typeof args !== 'string') return null
+  try {
+    const parsed = JSON.parse(args)
+    return parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+/** A spawned sub-agent awaiting its (best-effort) duration from a `wait_agent`. */
+interface PendingSpawn {
+  invocation: AgentInvocation
+  /** ms epoch of the `spawn_agent` envelope, for duration pairing. */
+  spawnedAtMs: number
+}
+
+/** A `wait_agent` occurrence: its envelope time + the targets it referenced. */
+interface WaitEvent {
+  atMs: number
+  targets: string[]
+}
+
+/**
+ * Pair each `spawn_agent` with a later `wait_agent` to fill `durationMs`.
+ *
+ * Heuristic: Codex's `spawn_agent` args carry only `{ agent_type, message }`
+ * (no target id), and a single `wait_agent` can block on a *batch* of spawned
+ * agents (`targets: string[]`). So we pair each spawn with the FIRST wait whose
+ * envelope timestamp is at-or-after the spawn's — many spawns may share one
+ * batch wait. When no such wait exists, `durationMs` stays undefined (honest:
+ * the agent may still be running, or the rollout was truncated). `agentId` is
+ * filled from a wait target when one is available, else left undefined.
+ */
+function pairSpawnDurations(
+  spawns: PendingSpawn[],
+  waits: WaitEvent[],
+): void {
+  if (waits.length === 0) return
+  // waits are already in file (chronological) order.
+  for (const spawn of spawns) {
+    const match = waits.find((w) => w.atMs >= spawn.spawnedAtMs)
+    if (!match) continue
+    const duration = match.atMs - spawn.spawnedAtMs
+    if (Number.isFinite(duration) && duration >= 0) {
+      spawn.invocation.durationMs = duration
+    }
+    if (!spawn.invocation.agentId && match.targets.length > 0) {
+      spawn.invocation.agentId = match.targets[0]
+    }
+  }
+}
+
+/** Map a single `update_plan` plan-item status to a domain `TaskItem` status. */
+function planStatus(status: unknown): TaskItem['status'] {
+  if (status === 'in_progress' || status === 'completed') return status
+  return 'pending'
+}
+
+/**
+ * Build the current task list from the LATEST `update_plan` call.
+ *
+ * Codex re-sends the *entire* plan on every `update_plan` (Section 4.8), so the
+ * most recent snapshot is the authoritative current state — earlier snapshots
+ * are superseded. Each plan item becomes a `TaskItem` with a synthesized
+ * `codex-plan-<index>` id and the envelope timestamp of that latest call.
+ */
+function buildTasks(
+  latestPlan: { args: Record<string, unknown>; timestamp: string } | null,
+): TaskItem[] {
+  if (!latestPlan) return []
+  const plan = latestPlan.args['plan']
+  if (!Array.isArray(plan)) return []
+
+  const tasks: TaskItem[] = []
+  for (let i = 0; i < plan.length; i++) {
+    const item = plan[i] as { step?: unknown; status?: unknown }
+    const step = item?.step
+    if (typeof step !== 'string' || !step.trim()) continue
+    tasks.push({
+      taskId: `codex-plan-${i}`,
+      subject: step,
+      status: planStatus(item?.status),
+      timestamp: latestPlan.timestamp,
+    })
+  }
+  return tasks
+}
+
 /**
  * Map a Codex session's full envelope stream into a normalized `SessionDetail`
  * (Sections 4.2–4.9). PURE — no `fs`; the I/O layer feeds validated `CodexLine[]`.
@@ -357,8 +451,9 @@ function parseExitCode(output: unknown): number | null {
  * `toolCalls`; `reasoning` items are folded into the owning assistant turn (no
  * separate turn). Tokens are cumulative — `totalTokens` is the LAST
  * `token_count.total_token_usage`; per-model attribution sums `last_token_usage`
- * deltas keyed to the active `turn_context.model`. Agents/skills/tasks degrade
- * to `[]` until Phase 4.
+ * deltas keyed to the active `turn_context.model`. Agents come from
+ * `spawn_agent`/`wait_agent`, tasks from the latest `update_plan` (4.6, 4.8);
+ * skills stay `[]` (Codex has no per-session skill events, 4.7).
  */
 export function mapDetail(
   lines: CodexLine[],
@@ -370,6 +465,13 @@ export function mapDetail(
   const errors: SessionError[] = []
   const snapshots: ContextWindowSnapshot[] = []
   const modelsSet = new Set<string>()
+
+  // Sub-agents: collect spawn_agent invocations and wait_agent events, then
+  // pair them for best-effort durations after the full pass (4.6).
+  const spawns: PendingSpawn[] = []
+  const waits: WaitEvent[] = []
+  // Tasks: Codex re-sends the whole plan each update_plan; keep only the latest (4.8).
+  let latestPlan: { args: Record<string, unknown>; timestamp: string } | null = null
 
   let activeModel: string | undefined
   let activeTurnId: string | undefined
@@ -427,6 +529,51 @@ export function mapDetail(
             if (currentTurn) currentTurn.toolCalls.push(tool)
             toolFrequency[tool.toolName] =
               (toolFrequency[tool.toolName] ?? 0) + 1
+
+            // spawn_agent / wait_agent / update_plan are ordinary function_calls
+            // that ALSO carry sub-agent and task data (4.6, 4.8). They still
+            // count as tool calls above; here we extract the richer domain data.
+            const name = tool.toolName
+            if (name === 'spawn_agent') {
+              const args = parseArgs(payload?.['arguments'])
+              const agentType =
+                typeof args?.['agent_type'] === 'string'
+                  ? (args['agent_type'] as string)
+                  : 'agent'
+              const message =
+                typeof args?.['message'] === 'string'
+                  ? truncate(args['message'] as string, 200)
+                  : ''
+              const spawnedAtMs = new Date(ts).getTime()
+              const invocation: AgentInvocation = {
+                subagentType: agentType,
+                description: message,
+                timestamp: ts,
+                toolUseId: tool.toolUseId,
+                model: activeModel,
+                // No sub-agent JSONL in Codex — tokens/tools/skills stay undefined.
+              }
+              spawns.push({
+                invocation,
+                spawnedAtMs: Number.isFinite(spawnedAtMs)
+                  ? spawnedAtMs
+                  : Number.NaN,
+              })
+            } else if (name === 'wait_agent') {
+              const args = parseArgs(payload?.['arguments'])
+              const rawTargets = args?.['targets']
+              const targets = Array.isArray(rawTargets)
+                ? rawTargets.filter(
+                    (t): t is string => typeof t === 'string' && !!t,
+                  )
+                : []
+              const atMs = new Date(ts).getTime()
+              if (Number.isFinite(atMs)) waits.push({ atMs, targets })
+            } else if (name === 'update_plan') {
+              const args = parseArgs(payload?.['arguments'])
+              // Codex re-sends the full plan each call — keep the latest only.
+              if (args) latestPlan = { args, timestamp: ts }
+            }
           }
         } else if (pt === 'function_call_output') {
           const code = parseExitCode(payload?.['output'])
@@ -512,6 +659,11 @@ export function mapDetail(
       }
     : emptyUsage()
 
+  // Best-effort spawn→wait duration pairing now that we've seen every wait_agent.
+  pairSpawnDurations(spawns, waits)
+  const agents: AgentInvocation[] = spawns.map((s) => s.invocation)
+  const tasks = buildTasks(latestPlan)
+
   const models = Array.from(modelsSet)
   const resolvedLimit = contextLimit ?? taskStartedContextWindow
   const modelName = models.length > 0 ? models[0] : 'unknown'
@@ -535,9 +687,9 @@ export function mapDetail(
     toolFrequency,
     errors,
     models,
-    agents: [],
+    agents,
     skills: [],
-    tasks: [],
+    tasks,
     contextWindow,
   }
 }

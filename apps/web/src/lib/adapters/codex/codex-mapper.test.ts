@@ -391,6 +391,56 @@ function turnAborted(reason: string, ts: string): CodexLine {
   }
 }
 
+function spawnAgent(
+  agentType: string,
+  message: string,
+  callId: string,
+  ts: string,
+): CodexLine {
+  return {
+    timestamp: ts,
+    type: 'response_item',
+    payload: {
+      type: 'function_call',
+      name: 'spawn_agent',
+      call_id: callId,
+      arguments: JSON.stringify({ agent_type: agentType, message }),
+    },
+  }
+}
+
+function waitAgent(targets: string[], ts: string, timeoutMs = 600000): CodexLine {
+  return {
+    timestamp: ts,
+    type: 'response_item',
+    payload: {
+      type: 'function_call',
+      name: 'wait_agent',
+      call_id: `wait-${ts}`,
+      arguments: JSON.stringify({ targets, timeout_ms: timeoutMs }),
+    },
+  }
+}
+
+function updatePlan(
+  plan: Array<{ step: string; status: string }>,
+  ts: string,
+  explanation?: string,
+): CodexLine {
+  return {
+    timestamp: ts,
+    type: 'response_item',
+    payload: {
+      type: 'function_call',
+      name: 'update_plan',
+      call_id: `plan-${ts}`,
+      arguments: JSON.stringify(
+        explanation !== undefined ? { explanation, plan } : { plan },
+      ),
+    },
+  }
+}
+
 describe('mapDetail', () => {
   it('produces a normalized, in-contract SessionDetail for a full session', () => {
     const lines: CodexLine[] = [
@@ -429,7 +479,8 @@ describe('mapDetail', () => {
     expect(detail.branch).toBeNull()
     expect(detail.title).toBe('Health endpoint')
     expect(detail.isInteractive).toBe(true)
-    // Phase 3 degrades agents/skills/tasks to empty.
+    // No spawn_agent/update_plan in this fixture, so agents/tasks are empty;
+    // skills always degrade to [] for Codex (4.7).
     expect(detail.agents).toEqual([])
     expect(detail.skills).toEqual([])
     expect(detail.tasks).toEqual([])
@@ -695,6 +746,197 @@ describe('mapDetail', () => {
 
     const detail = mapDetail(lines, detailCtx())
     expect(detail.errors.filter((e) => e.type === 'exec')).toHaveLength(0)
+  })
+
+  // --- Phase 4: agents (spawn/wait), tasks (update_plan) ---
+
+  describe('agents (spawn_agent / wait_agent)', () => {
+    it('maps one spawn_agent → one AgentInvocation with paired duration', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        assistantMessage('delegating', '2026-06-01T10:00:01.600Z'),
+        spawnAgent(
+          'code-reviewer',
+          'Review the diff in src/routes for correctness',
+          'call_spawn_1',
+          '2026-06-01T10:00:02.000Z',
+        ),
+        waitAgent(['agent-xyz'], '2026-06-01T10:00:08.000Z'),
+        taskComplete('2026-06-01T10:00:09.000Z'),
+      ]
+
+      const detail = mapDetail(lines, detailCtx())
+      expect(detail.agents).toHaveLength(1)
+      const agent = detail.agents[0]
+      expect(agent.subagentType).toBe('code-reviewer')
+      expect(agent.description).toBe(
+        'Review the diff in src/routes for correctness',
+      )
+      expect(agent.toolUseId).toBe('call_spawn_1')
+      expect(agent.timestamp).toBe('2026-06-01T10:00:02.000Z')
+      // active turn_context.model.
+      expect(agent.model).toBe('gpt-5.5')
+      // wait_agent ts − spawn_agent ts = 6000ms.
+      expect(agent.durationMs).toBe(6000)
+      // wait_agent target surfaces as agentId.
+      expect(agent.agentId).toBe('agent-xyz')
+      // Codex has no sub-agent JSONL — these stay undefined (NOT fabricated).
+      expect(agent.tokens).toBeUndefined()
+      expect(agent.totalTokens).toBeUndefined()
+      expect(agent.totalToolUseCount).toBeUndefined()
+      expect(agent.toolCalls).toBeUndefined()
+      expect(agent.skills).toBeUndefined()
+    })
+
+    it('leaves durationMs undefined when no wait_agent follows', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        spawnAgent('researcher', 'find the bug', 'call_spawn_2', '2026-06-01T10:00:02.000Z'),
+      ]
+      const detail = mapDetail(lines, detailCtx())
+      expect(detail.agents).toHaveLength(1)
+      expect(detail.agents[0].durationMs).toBeUndefined()
+      expect(detail.agents[0].agentId).toBeUndefined()
+    })
+
+    it('pairs a batch wait_agent across multiple spawns', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        spawnAgent('a', 'task one', 'call_s1', '2026-06-01T10:00:02.000Z'),
+        spawnAgent('b', 'task two', 'call_s2', '2026-06-01T10:00:03.000Z'),
+        waitAgent(['agent-1', 'agent-2'], '2026-06-01T10:00:10.000Z'),
+      ]
+      const detail = mapDetail(lines, detailCtx())
+      expect(detail.agents).toHaveLength(2)
+      // Both spawns pair with the single batch wait at +10s.
+      expect(detail.agents[0].durationMs).toBe(8000)
+      expect(detail.agents[1].durationMs).toBe(7000)
+    })
+
+    it('skips the agent_type / message field on bad JSON args (no throw)', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        {
+          timestamp: '2026-06-01T10:00:02.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'spawn_agent',
+            call_id: 'call_bad',
+            arguments: 'not-json{',
+          },
+        },
+      ]
+      const detail = mapDetail(lines, detailCtx())
+      expect(detail.agents).toHaveLength(1)
+      // Falls back to sensible defaults rather than throwing.
+      expect(detail.agents[0].subagentType).toBe('agent')
+      expect(detail.agents[0].description).toBe('')
+      expect(detail.agents[0].toolUseId).toBe('call_bad')
+    })
+
+    it('still counts spawn/wait as tool calls in toolFrequency', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        spawnAgent('a', 'go', 'call_s1', '2026-06-01T10:00:02.000Z'),
+        waitAgent(['agent-1'], '2026-06-01T10:00:05.000Z'),
+      ]
+      const detail = mapDetail(lines, detailCtx())
+      expect(detail.toolFrequency).toEqual({ spawn_agent: 1, wait_agent: 1 })
+    })
+  })
+
+  describe('tasks (update_plan)', () => {
+    it('takes only the LATEST update_plan snapshot as the task list', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        updatePlan(
+          [
+            { step: 'design', status: 'in_progress' },
+            { step: 'implement', status: 'pending' },
+          ],
+          '2026-06-01T10:00:02.000Z',
+        ),
+        // Re-sent full plan — supersedes the earlier one.
+        updatePlan(
+          [
+            { step: 'design', status: 'completed' },
+            { step: 'implement', status: 'in_progress' },
+            { step: 'verify', status: 'pending' },
+          ],
+          '2026-06-01T10:00:08.000Z',
+          'progressing',
+        ),
+      ]
+
+      const detail = mapDetail(lines, detailCtx())
+      expect(detail.tasks).toHaveLength(3)
+      expect(detail.tasks.map((t) => t.subject)).toEqual([
+        'design',
+        'implement',
+        'verify',
+      ])
+      // Latest statuses win (not the first snapshot's).
+      expect(detail.tasks.map((t) => t.status)).toEqual([
+        'completed',
+        'in_progress',
+        'pending',
+      ])
+      // Synthesized ids + timestamp of the latest update_plan.
+      expect(detail.tasks.map((t) => t.taskId)).toEqual([
+        'codex-plan-0',
+        'codex-plan-1',
+        'codex-plan-2',
+      ])
+      expect(detail.tasks[0].timestamp).toBe('2026-06-01T10:00:08.000Z')
+      // No description/activeForm for Codex plan items.
+      expect(detail.tasks[0].description).toBeUndefined()
+      expect(detail.tasks[0].activeForm).toBeUndefined()
+    })
+
+    it('maps an unknown plan status to pending and skips empty steps', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        updatePlan(
+          [
+            { step: 'real step', status: 'weird' },
+            { step: '   ', status: 'completed' },
+          ],
+          '2026-06-01T10:00:02.000Z',
+        ),
+      ]
+      const detail = mapDetail(lines, detailCtx())
+      // Only the non-empty step survives; unknown status → pending.
+      expect(detail.tasks).toHaveLength(1)
+      expect(detail.tasks[0].subject).toBe('real step')
+      expect(detail.tasks[0].status).toBe('pending')
+    })
+
+    it('produces no tasks when update_plan args are bad JSON (no throw)', () => {
+      const lines: CodexLine[] = [
+        sessionMeta(),
+        turnContext('gpt-5.5', '2026-06-01T10:00:01.000Z'),
+        {
+          timestamp: '2026-06-01T10:00:02.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'update_plan',
+            call_id: 'call_plan_bad',
+            arguments: 'not-json{',
+          },
+        },
+      ]
+      const detail = mapDetail(lines, detailCtx())
+      expect(detail.tasks).toEqual([])
+    })
   })
 
   it('truncates message text to ~500 chars (mirrors Claude extractor)', () => {
