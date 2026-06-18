@@ -3,6 +3,20 @@ import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { ActiveSessionsBadge } from '@/features/sessions/ActiveSessionsBadge'
 import { appInfoQuery } from '@/features/settings/app-info.queries'
+import type { AppInfo } from '@/features/settings/app-info.api'
+
+/**
+ * Compact, provider-aware footer roots. Collapses the home directory to `~`
+ * and shows both Claude and Codex roots (e.g. `~/.claude + ~/.codex`) when
+ * Codex is present, falling back to exactly the Claude root otherwise.
+ */
+function appInfoRoots(appInfo: AppInfo): string {
+  const collapse = (p: string) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, '~')
+  const roots = [appInfo.appPath, appInfo.codexPath]
+    .filter((p): p is string => Boolean(p))
+    .map(collapse)
+  return roots.join(' + ')
+}
 
 const NAV_ITEMS = [
   {
@@ -108,9 +122,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           {appInfo && (
             <p
               className="mt-1.5 truncate text-[10px] text-gray-500"
-              title={`v${appInfo.version} · ${appInfo.appPath}`}
+              title={`v${appInfo.version} · ${appInfoRoots(appInfo)}`}
             >
-              v{appInfo.version} · {appInfo.appPath}
+              v{appInfo.version} · {appInfoRoots(appInfo)}
             </p>
           )}
         </div>

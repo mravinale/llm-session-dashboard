@@ -63,6 +63,8 @@ export async function getCodexSources(): Promise<ProviderSource[]> {
 
   if (!available) return []
 
+  // TODO(codex): WSL parity — enumerate per-distro `~/.codex` roots (mirroring
+  // Claude's WSL multi-distro detection). Deferred; primary source only for now.
   return [
     {
       provider: 'codex',

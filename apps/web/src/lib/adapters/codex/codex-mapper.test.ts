@@ -966,4 +966,31 @@ describe('mapDetail', () => {
     expect(detail.contextWindow).toBeNull()
     expect(detail.tokensByModel).toEqual({})
   })
+
+  // Defensive: a malformed/unreadable rollout has every line dropped by the
+  // parser's per-line `safeParse`, so `mapDetail` is handed `[]`. It must still
+  // return a usable minimal SessionDetail (not throw), mirroring how Claude
+  // degrades on a bad file rather than 500-ing the detail page.
+  it('returns a minimal, non-throwing SessionDetail when every line was unparseable', () => {
+    const detail = mapDetail([], detailCtx())
+
+    expect(detail.sessionId).toBe('019ed000-0000-7000-8000-000000000001')
+    expect(detail.provider).toBe('codex')
+    expect(detail.projectPath).toBe('/Users/dev/Repositories/Github/my-codex-app')
+    expect(detail.projectName).toBe('my-codex-app')
+    expect(detail.turns).toEqual([])
+    expect(detail.errors).toEqual([])
+    expect(detail.agents).toEqual([])
+    expect(detail.tasks).toEqual([])
+    expect(detail.skills).toEqual([])
+    expect(detail.models).toEqual([])
+    expect(detail.tokensByModel).toEqual({})
+    expect(detail.contextWindow).toBeNull()
+    expect(detail.totalTokens).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    })
+  })
 })

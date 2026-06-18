@@ -13,6 +13,8 @@
 
 See exactly where your context window goes. Trace every agent delegation. Understand how your Claude Code workflows actually execute — all from your local `~/.claude`, no data sent anywhere.
 
+Now tracks both **Claude Code** and **OpenAI Codex CLI** sessions side by side: when `~/.codex` is present, Codex sessions show up alongside your Claude sessions across the list, detail, stats, and cost views.
+
 ```bash
 npx claude-session-dashboard
 ```
