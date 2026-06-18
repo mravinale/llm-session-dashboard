@@ -304,7 +304,6 @@ describe('getMergedPricing', () => {
   it('merges partial overrides correctly', () => {
     const settings: Settings = {
       version: 1,
-      subscriptionTier: 'pro',
       dataSources: [],
       pricingOverrides: {
         'claude-sonnet-4': {
@@ -352,7 +351,6 @@ describe('getMergedPricing', () => {
 
     const settings: Settings = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: overrides,
       dataSources: [],
     }
