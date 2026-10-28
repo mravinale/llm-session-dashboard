@@ -35,6 +35,7 @@ vi.mock('node:fs', () => ({
 function makeSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
     sessionId: 'session-abc',
+    provider: 'claude',
     projectPath: '/Users/user/myproject',
     projectName: 'myproject',
     branch: 'main',
@@ -65,6 +66,22 @@ function makeProject(overrides: Partial<ProjectInfo> = {}): ProjectInfo {
   }
 }
 
+// Default single available "primary" Claude source. The live read path
+// (`scanAllSessions`) now enumerates sources through the Claude adapter's
+// `getSources()` -> `getDataSources()` before delegating to `scanProjects()`,
+// so the primary-source tests below must have a source to iterate. This mirrors
+// today's real environment (one local ~/.claude) and keeps the legacy
+// single-source behavior under test: `scanProjects` (not `scanProjectsFrom`) is
+// used and no source fields are stamped. The `scanAllSessionsMultiSource` tests
+// override this with their own `mockGetDataSources.mockResolvedValue(...)`.
+const PRIMARY_SOURCE: DataSource = {
+  id: 'primary',
+  label: 'macOS',
+  claudeDir: '/Users/user/.claude',
+  platform: 'macos',
+  available: true,
+}
+
 describe('session-scanner', () => {
   // We need fresh module imports on each test to reset the module-level summaryCache
   beforeEach(() => {
@@ -80,6 +97,10 @@ describe('session-scanner', () => {
     const { isSessionActive } = await import('./active-detector')
     const { getDataSources } = await import('../utils/claude-path')
     const fs = await import('node:fs')
+    // Default to a single available primary source so the adapter-driven
+    // `scanAllSessions` path has a source to scan. Multi-source tests override
+    // this immediately after calling importScanner().
+    ;(getDataSources as ReturnType<typeof vi.fn>).mockResolvedValue([PRIMARY_SOURCE])
     return {
       scanAllSessions: scanner.scanAllSessions,
       scanAllSessionsWithPaths: scanner.scanAllSessionsWithPaths,

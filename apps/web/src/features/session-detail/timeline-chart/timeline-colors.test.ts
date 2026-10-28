@@ -36,9 +36,9 @@ describe('shortenToolName', () => {
 
 describe('getToolColor', () => {
   it('returns the correct hex color for file-reading tools', () => {
-    expect(getToolColor('Read')).toBe('#e09070')
-    expect(getToolColor('Grep')).toBe('#e09070')
-    expect(getToolColor('Glob')).toBe('#e09070')
+    expect(getToolColor('Read')).toBe('#5b93f2')
+    expect(getToolColor('Grep')).toBe('#5b93f2')
+    expect(getToolColor('Glob')).toBe('#5b93f2')
   })
 
   it('returns the correct hex color for file-writing tools', () => {

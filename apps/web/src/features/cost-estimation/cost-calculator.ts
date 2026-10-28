@@ -40,12 +40,26 @@ export function calculateSessionCost(
 
   for (const [rawModelId, tokens] of Object.entries(tokensByModel)) {
     const normalized = normalizeModelId(rawModelId)
-    const pricing = pricingTable[normalized] ?? pricingTable[FALLBACK_MODEL_ID]
+    const directMatch = pricingTable[normalized]
+    const pricing = directMatch ?? pricingTable[FALLBACK_MODEL_ID]
 
     if (!pricing) continue
 
+    // When the model isn't in the pricing table we still estimate a cost using
+    // the fallback rates, but the entry must DISPLAY the real model id — never
+    // inherit the fallback model's display name (e.g. a gpt-5.5 session must not
+    // read "Claude Sonnet 4"). Known models (incl. Codex) resolve directly.
+    const displayName = directMatch ? pricing.displayName : normalized
+
+    // OpenAI bills reasoning as output tokens. The Codex mapper keeps
+    // reasoningOutputTokens separate from outputTokens (to avoid double
+    // counting), so bill it here at the output rate. Undefined for Claude → 0.
+    const reasoningOutputTokens = tokens.reasoningOutputTokens ?? 0
+
     const inputCost = (tokens.inputTokens / 1_000_000) * pricing.inputPerMTok
-    const outputCost = (tokens.outputTokens / 1_000_000) * pricing.outputPerMTok
+    const outputCost =
+      ((tokens.outputTokens + reasoningOutputTokens) / 1_000_000) *
+      pricing.outputPerMTok
     const cacheReadCost =
       (tokens.cacheReadInputTokens / 1_000_000) * pricing.cacheReadPerMTok
     const cacheWriteCost =
@@ -64,10 +78,14 @@ export function calculateSessionCost(
       existing.tokens.outputTokens += tokens.outputTokens
       existing.tokens.cacheReadInputTokens += tokens.cacheReadInputTokens
       existing.tokens.cacheCreationInputTokens += tokens.cacheCreationInputTokens
+      if (reasoningOutputTokens > 0) {
+        existing.tokens.reasoningOutputTokens =
+          (existing.tokens.reasoningOutputTokens ?? 0) + reasoningOutputTokens
+      }
     } else {
       byModel[normalized] = {
         modelId: normalized,
-        displayName: pricing.displayName,
+        displayName,
         inputCost,
         outputCost,
         cacheReadCost,

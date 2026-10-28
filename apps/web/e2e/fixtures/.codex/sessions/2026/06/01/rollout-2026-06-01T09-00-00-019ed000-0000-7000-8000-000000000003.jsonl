@@ -1,0 +1,6 @@
+{"timestamp":"2026-06-01T09:00:00.000Z","type":"session_meta","payload":{"id":"019ed000-0000-7000-8000-000000000003","timestamp":"2026-06-01T09:00:00.000Z","cwd":"/Users/dev/Repositories/Github/legacy-codex","originator":"codex_cli","cli_version":"0.36.0","instructions":null}}
+{"timestamp":"2026-06-01T09:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn-1","model":"gpt-5-codex"}}
+{"timestamp":"2026-06-01T09:00:01.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Explain the build pipeline"}]}}
+{"timestamp":"2026-06-01T09:00:02.500Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"cat package.json\"}","call_id":"call_c1"}}
+{"timestamp":"2026-06-01T09:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"cached_input_tokens":0,"output_tokens":120,"total_tokens":620},"model_context_window":128000}}}
+{"timestamp":"2026-06-01T09:00:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The build runs tsc then vite build."}]}}

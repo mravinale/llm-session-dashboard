@@ -2,6 +2,11 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { scanAllSessions, getActiveSessions } from '@/lib/scanner/session-scanner'
 import type { SessionSummary } from '@/lib/parsers/types'
+import {
+  providerFilterSchema,
+  PROVIDER_IDS,
+  type ProviderId,
+} from '@/lib/adapters/provider-registry'
 
 export const getSessionList = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -21,11 +26,18 @@ const paginatedSessionsInputSchema = z.object({
   search: z.string(),
   status: z.enum(['all', 'active', 'completed']),
   project: z.string(),
+  // Reuses the single derived enum from the registry (P2) — no duplicate literal.
+  provider: providerFilterSchema.default('all'),
   sort: z.enum(['lastActive', 'started', 'duration', 'messages']).default('lastActive'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
 })
 
-type PaginatedSessionsInput = z.infer<typeof paginatedSessionsInputSchema>
+// `provider` is optional at the call site (Zod defaults it to 'all'); existing
+// callers/tests need no change.
+type PaginatedSessionsInput = Omit<
+  z.infer<typeof paginatedSessionsInputSchema>,
+  'provider'
+> & { provider?: z.infer<typeof providerFilterSchema> }
 
 export interface PaginatedSessionsResult {
   sessions: SessionSummary[]
@@ -34,6 +46,8 @@ export interface PaginatedSessionsResult {
   page: number
   pageSize: number
   projects: string[]
+  /** Distinct providers present in the full (unfiltered) session set. */
+  providers: ProviderId[]
 }
 
 /**
@@ -44,12 +58,25 @@ export async function paginateAndFilterSessions(
   allSessions: SessionSummary[],
   input: PaginatedSessionsInput,
 ): Promise<PaginatedSessionsResult> {
-  const { page, pageSize, search, status, project, sort = 'lastActive', sortDir = 'desc' } = input
+  const {
+    page,
+    pageSize,
+    search,
+    status,
+    project,
+    provider = 'all',
+    sort = 'lastActive',
+    sortDir = 'desc',
+  } = input
 
   // Extract distinct project names from full unfiltered set
   const projects = Array.from(
     new Set(allSessions.map((s) => s.projectName)),
   ).sort()
+
+  // Distinct providers present, in registry order (stable for the filter UI).
+  const presentProviders = new Set(allSessions.map((s) => s.provider))
+  const providers = PROVIDER_IDS.filter((id) => presentProviders.has(id))
 
   // Apply filters
   let filtered = allSessions
@@ -76,6 +103,11 @@ export async function paginateAndFilterSessions(
   // Project filter: exact match
   if (project) {
     filtered = filtered.filter((s) => s.projectName === project)
+  }
+
+  // Provider filter: exact match when not the 'all' sentinel
+  if (provider !== 'all') {
+    filtered = filtered.filter((s) => s.provider === provider)
   }
 
   // Sort after filtering
@@ -116,6 +148,7 @@ export async function paginateAndFilterSessions(
     page: clampedPage,
     pageSize,
     projects,
+    providers,
   }
 }
 

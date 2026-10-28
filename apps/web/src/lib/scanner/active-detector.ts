@@ -2,7 +2,8 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { getProjectsDir } from '../utils/claude-path'
 
-const ACTIVE_THRESHOLD_MS = 120_000 // 2 minutes
+/** A session whose JSONL was last modified within this window is "fresh". */
+export const ACTIVE_THRESHOLD_MS = 120_000 // 2 minutes
 
 /**
  * Check if a session is active by examining:

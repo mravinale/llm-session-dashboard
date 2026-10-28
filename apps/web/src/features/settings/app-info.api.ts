@@ -3,10 +3,17 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServerFn } from '@tanstack/react-start'
+import { getAdapters } from '@/lib/adapters/adapter'
+import type { ProviderId } from '@/lib/adapters/provider-registry'
 
 export interface AppInfo {
   version: string
+  /** Claude data root (kept for back-compat with existing footer copy). */
   appPath: string
+  /** Codex data root, present only when `~/.codex` exists on this machine. */
+  codexPath?: string
+  /** Providers actually available on this machine, in registry order. */
+  providers: ProviderId[]
   nodeEnv: string
 }
 
@@ -42,12 +49,39 @@ function readVersionFromPackageJson(): string {
   return 'unknown'
 }
 
+/**
+ * Pure assembly of {@link AppInfo} from already-resolved inputs. Exported for
+ * unit testing; the server function below feeds it real fs/os/registry values.
+ *
+ * `codexPath` is included only when `providers` contains `'codex'` (the
+ * registry only lists Codex when `~/.codex` exists), so the footer reflects
+ * exactly the Claude root when Codex is absent.
+ */
+export function buildAppInfo(input: {
+  version: string
+  homeDir: string
+  providers: ProviderId[]
+  nodeEnv: string
+}): AppInfo {
+  const hasCodex = input.providers.includes('codex')
+  return {
+    version: input.version,
+    appPath: path.join(input.homeDir, '.claude'),
+    ...(hasCodex ? { codexPath: path.join(input.homeDir, '.codex') } : {}),
+    providers: input.providers,
+    nodeEnv: input.nodeEnv,
+  }
+}
+
 export const getAppInfo = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AppInfo> => {
-    return {
+    // The adapter registry only includes Codex when `~/.codex` exists, so
+    // deriving from it keeps the footer accurate without a second fs probe.
+    return buildAppInfo({
       version: readVersionFromPackageJson(),
-      appPath: path.join(os.homedir(), '.claude'),
+      homeDir: os.homedir(),
+      providers: getAdapters().map((a) => a.provider),
       nodeEnv: process.env.NODE_ENV ?? 'development',
-    }
+    })
   },
 )

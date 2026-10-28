@@ -2,18 +2,25 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Route } from '@/routes/_dashboard/sessions/index'
 import { usePrivacy } from '@/features/privacy/PrivacyContext'
+import {
+  PROVIDERS,
+  type ProviderId,
+  type ProviderFilter,
+} from '@/lib/adapters/provider-registry'
 
 const SORT_OPTIONS = ['lastActive', 'started', 'duration', 'messages'] as const
 type SortOption = typeof SORT_OPTIONS[number]
 
 interface SessionFiltersProps {
   projects: string[]
+  /** Distinct providers present in the data; the filter only shows with >1. */
+  providers: ProviderId[]
   activeCount: number
 }
 
-export function SessionFilters({ projects, activeCount }: SessionFiltersProps) {
+export function SessionFilters({ projects, providers, activeCount }: SessionFiltersProps) {
   const navigate = useNavigate()
-  const { search: urlSearch, status, project, sort, sortDir } = Route.useSearch()
+  const { search: urlSearch, status, project, provider, sort, sortDir } = Route.useSearch()
   const { privacyMode, anonymizeProjectName } = usePrivacy()
 
   // Local search state with debounce
@@ -86,6 +93,13 @@ export function SessionFilters({ projects, activeCount }: SessionFiltersProps) {
     })
   }
 
+  function handleProviderChange(newProvider: ProviderFilter) {
+    navigate({
+      to: '/sessions',
+      search: (prev) => ({ ...prev, provider: newProvider, page: 1 }),
+    })
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-3">
       <input
@@ -114,6 +128,21 @@ export function SessionFilters({ projects, activeCount }: SessionFiltersProps) {
           </button>
         ))}
       </div>
+
+      {providers.length > 1 && (
+        <select
+          value={provider}
+          onChange={(e) => handleProviderChange(e.target.value as ProviderFilter)}
+          className="rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-brand-500"
+        >
+          <option value="all">All providers</option>
+          {PROVIDERS.filter((p) => providers.includes(p.id)).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      )}
 
       {projects.length > 1 && (
         <select

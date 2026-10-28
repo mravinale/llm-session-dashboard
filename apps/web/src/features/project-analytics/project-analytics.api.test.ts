@@ -7,6 +7,7 @@ describe('project-analytics', () => {
     overrides: Partial<SessionSummary> = {},
   ): SessionSummary => ({
     sessionId: `session-${Math.random()}`,
+    provider: 'claude',
     projectPath: '/path/to/project',
     projectName: 'test-project',
     branch: 'main',
@@ -322,6 +323,53 @@ describe('project-analytics', () => {
         totalDurationMs: 3000,
         firstSessionAt: '2026-01-01T00:00:00Z',
         lastSessionAt: '2026-01-03T00:00:00Z',
+      })
+    })
+
+    it('merges Claude and Codex sessions that share one cwd into a single row', () => {
+      // Plan 4.10: a project cwd used by BOTH providers shares one projectPath
+      // and intentionally collapses into one Project Analytics row. The merge
+      // keys on projectPath (the absolute cwd), so provider is irrelevant here.
+      const sessions = [
+        createMockSession({
+          provider: 'claude',
+          sessionId: 'claude-1',
+          projectPath: '/Users/dev/shared-app',
+          projectName: 'shared-app',
+          messageCount: 8,
+          durationMs: 1000,
+          isActive: true,
+          outputTokens: 1000,
+          startedAt: '2026-01-01T00:00:00Z',
+          lastActiveAt: '2026-01-02T00:00:00Z',
+        }),
+        createMockSession({
+          provider: 'codex',
+          sessionId: 'codex-1',
+          projectPath: '/Users/dev/shared-app',
+          projectName: 'shared-app',
+          messageCount: 12,
+          durationMs: 2000,
+          isActive: false,
+          outputTokens: 500,
+          startedAt: '2026-01-03T00:00:00Z',
+          lastActiveAt: '2026-01-04T00:00:00Z',
+        }),
+      ]
+
+      const result = aggregateProjectAnalytics(sessions)
+
+      expect(result.projects).toHaveLength(1)
+      expect(result.projects[0]).toEqual({
+        projectPath: '/Users/dev/shared-app',
+        projectName: 'shared-app',
+        totalSessions: 2,
+        activeSessions: 1,
+        totalMessages: 20,
+        outputTokens: 1500,
+        totalDurationMs: 3000,
+        firstSessionAt: '2026-01-01T00:00:00Z',
+        lastSessionAt: '2026-01-04T00:00:00Z',
       })
     })
   })

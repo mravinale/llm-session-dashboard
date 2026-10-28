@@ -1,5 +1,7 @@
 import { queryOptions, keepPreviousData } from '@tanstack/react-query'
+import type { z } from 'zod'
 import { getSessionList, getActiveSessionList, getPaginatedSessions } from './sessions.api'
+import type { providerFilterSchema } from '@/lib/adapters/provider-registry'
 
 export const sessionListQuery = queryOptions({
   queryKey: ['sessions', 'list'],
@@ -19,6 +21,7 @@ interface PaginatedSessionParams {
   search: string
   status: 'all' | 'active' | 'completed'
   project: string
+  provider: z.infer<typeof providerFilterSchema>
   sort: 'lastActive' | 'started' | 'duration' | 'messages'
   sortDir: 'asc' | 'desc'
 }

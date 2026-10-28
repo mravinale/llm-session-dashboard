@@ -393,6 +393,7 @@ function createMockStats(overrides: Partial<StatsCache> = {}): StatsCache {
 function createMockSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDetail {
   return {
     sessionId: 'test-session-123',
+    provider: 'claude',
     projectPath: '/path/to/project',
     projectName: 'test-project',
     branch: 'main',

@@ -1,0 +1,8 @@
+{"timestamp":"2026-06-01T11:00:00.000Z","type":"session_meta","payload":{"id":"019ed000-0000-7000-8000-000000000002","timestamp":"2026-06-01T11:00:00.000Z","cwd":"/Users/dev/Repositories/Github/live-session","originator":"codex_vscode","cli_version":"0.140.0-alpha.2","source":"vscode","model_provider":"openai","base_instructions":{"text":"You are Codex."}}}
+{"timestamp":"2026-06-01T11:00:00.100Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1","model_context_window":258400}}
+{"timestamp":"2026-06-01T11:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn-1","model":"gpt-5-codex"}}
+{"timestamp":"2026-06-01T11:00:01.500Z","type":"event_msg","payload":{"type":"user_message","message":"Refactor the auth middleware"}}
+{"timestamp":"2026-06-01T11:00:01.600Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Refactor the auth middleware"}]}}
+{"timestamp":"2026-06-01T11:00:02.500Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"cat src/auth.ts\"}","call_id":"call_b1"}}
+{"timestamp":"2026-06-01T11:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":900,"cached_input_tokens":100,"output_tokens":60,"reasoning_output_tokens":20,"total_tokens":960},"last_token_usage":{"input_tokens":900,"cached_input_tokens":100,"output_tokens":60,"reasoning_output_tokens":20,"total_tokens":960},"model_context_window":258400}}}
+{"timestamp":"2026-06-01T11:00:03.500Z","type":"event_msg","payload":{"type":"agent_message","message":"Reading the current middleware before refactoring."}}

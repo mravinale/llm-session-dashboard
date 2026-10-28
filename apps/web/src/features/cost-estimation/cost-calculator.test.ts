@@ -82,7 +82,7 @@ describe('calculateSessionCost', () => {
     expect(Object.keys(result.byModel)).toHaveLength(0)
   })
 
-  it('falls back to sonnet-4 for unknown model', () => {
+  it('uses fallback pricing but displays the real id for an unknown model', () => {
     const tokensByModel: Record<string, TokenUsage> = {
       'unknown-model-xyz': {
         inputTokens: 1_000_000,
@@ -95,11 +95,12 @@ describe('calculateSessionCost', () => {
     const pricingTable = getMergedPricing(DEFAULT_SETTINGS)
     const result = calculateSessionCost(tokensByModel, pricingTable)
 
-    // Falls back to claude-sonnet-4 pricing: $3/MTok input
+    // Falls back to claude-sonnet-4 pricing: $3/MTok input,
+    // but the display name must be the real model id, NOT a Claude name.
     expect(result.totalUSD).toBe(3.0)
     expect(result.byModel['unknown-model-xyz']).toEqual({
       modelId: 'unknown-model-xyz',
-      displayName: 'Claude Sonnet 4', // uses fallback display name
+      displayName: 'unknown-model-xyz', // real id, never inherits fallback's name
       inputCost: 3.0,
       outputCost: 0,
       cacheReadCost: 0,
@@ -107,6 +108,9 @@ describe('calculateSessionCost', () => {
       totalCost: 3.0,
       tokens: tokensByModel['unknown-model-xyz'],
     })
+    expect(result.byModel['unknown-model-xyz'].displayName).not.toBe(
+      'Claude Sonnet 4',
+    )
   })
 
   it('normalizes model IDs with date suffixes', () => {
@@ -188,6 +192,97 @@ describe('calculateSessionCost', () => {
     expect(result.byCategory.cacheRead).toBe(0.6)
     expect(result.byCategory.cacheWrite).toBe(1.875)
   })
+
+  it('resolves a Codex model (gpt-5.5) to its name and OpenAI rates, not Claude', () => {
+    const tokensByModel: Record<string, TokenUsage> = {
+      'gpt-5.5': {
+        inputTokens: 1_000_000,
+        outputTokens: 500_000,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+      },
+    }
+
+    const pricingTable = getMergedPricing(DEFAULT_SETTINGS)
+    const result = calculateSessionCost(tokensByModel, pricingTable)
+
+    // gpt-5.5: input $1.25/MTok, output $10/MTok
+    // 1M input ($1.25) + 0.5M output ($5.00) = $6.25
+    expect(result.totalUSD).toBe(6.25)
+    expect(result.byModel['gpt-5.5']).toEqual({
+      modelId: 'gpt-5.5',
+      displayName: 'GPT-5.5', // friendly name, NOT "Claude Sonnet 4"
+      inputCost: 1.25,
+      outputCost: 5.0,
+      cacheReadCost: 0,
+      cacheWriteCost: 0,
+      totalCost: 6.25,
+      tokens: tokensByModel['gpt-5.5'],
+    })
+    expect(result.byModel['gpt-5.5'].displayName).not.toBe('Claude Sonnet 4')
+  })
+
+  it('charges zero cache-write cost for OpenAI models (no cache-creation concept)', () => {
+    const tokensByModel: Record<string, TokenUsage> = {
+      'gpt-5.5': {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 2_000_000,
+        cacheCreationInputTokens: 1_000_000, // would-be cache-write tokens
+      },
+    }
+
+    const pricingTable = getMergedPricing(DEFAULT_SETTINGS)
+    const result = calculateSessionCost(tokensByModel, pricingTable)
+
+    // gpt-5.5: cacheRead $0.125/MTok, cacheWrite $0/MTok
+    // 2M cacheRead ($0.25) + 1M cacheWrite ($0.00) = $0.25
+    expect(result.byCategory.cacheWrite).toBe(0)
+    expect(result.byModel['gpt-5.5'].cacheWriteCost).toBe(0)
+    expect(result.byCategory.cacheRead).toBe(0.25)
+    expect(result.totalUSD).toBe(0.25)
+  })
+
+  it('bills reasoning tokens at the output rate, added to output cost', () => {
+    const tokensByModel: Record<string, TokenUsage> = {
+      'gpt-5.5': {
+        inputTokens: 0,
+        outputTokens: 500_000,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        reasoningOutputTokens: 500_000,
+      },
+    }
+
+    const pricingTable = getMergedPricing(DEFAULT_SETTINGS)
+    const result = calculateSessionCost(tokensByModel, pricingTable)
+
+    // gpt-5.5 output $10/MTok: (0.5M output + 0.5M reasoning) = 1M @ $10 = $10
+    expect(result.byCategory.output).toBe(10.0)
+    expect(result.byModel['gpt-5.5'].outputCost).toBe(10.0)
+    expect(result.totalUSD).toBe(10.0)
+  })
+
+  it('does not change Claude output cost when reasoning tokens are undefined', () => {
+    const tokensByModel: Record<string, TokenUsage> = {
+      'claude-sonnet-4': {
+        inputTokens: 1_000_000,
+        outputTokens: 500_000,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        // reasoningOutputTokens intentionally undefined (Claude has none)
+      },
+    }
+
+    const pricingTable = getMergedPricing(DEFAULT_SETTINGS)
+    const result = calculateSessionCost(tokensByModel, pricingTable)
+
+    // Identical to the original Claude cost: 1M input ($3) + 0.5M output ($7.50) = $10.50
+    expect(result.totalUSD).toBe(10.5)
+    expect(result.byCategory.output).toBe(7.5)
+    expect(result.byModel['claude-sonnet-4'].outputCost).toBe(7.5)
+    expect(result.byModel['claude-sonnet-4'].displayName).toBe('Claude Sonnet 4')
+  })
 })
 
 describe('getMergedPricing', () => {
@@ -209,7 +304,6 @@ describe('getMergedPricing', () => {
   it('merges partial overrides correctly', () => {
     const settings: Settings = {
       version: 1,
-      subscriptionTier: 'pro',
       dataSources: [],
       pricingOverrides: {
         'claude-sonnet-4': {
@@ -257,7 +351,6 @@ describe('getMergedPricing', () => {
 
     const settings: Settings = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: overrides,
       dataSources: [],
     }

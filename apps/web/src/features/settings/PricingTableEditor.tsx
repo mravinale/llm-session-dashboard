@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { DEFAULT_PRICING, type ModelPricing, type ModelPricingOverride } from './settings.types'
 
 interface PricingTableEditorProps {
@@ -11,6 +12,16 @@ const PRICE_FIELDS = [
   { key: 'cacheReadPerMTok' as const, label: 'Cache Read' },
   { key: 'cacheWritePerMTok' as const, label: 'Cache Write' },
 ]
+
+/** Provider grouping for the pricing table (display-only). */
+function providerGroupOf(modelId: string): 'claude' | 'openai' {
+  return modelId.startsWith('gpt-') ? 'openai' : 'claude'
+}
+
+const GROUP_LABELS: Record<'claude' | 'openai', string> = {
+  claude: 'Claude',
+  openai: 'OpenAI / Codex',
+}
 
 export function PricingTableEditor({ overrides, onChange }: PricingTableEditorProps) {
   function handleCellChange(
@@ -83,35 +94,53 @@ export function PricingTableEditor({ overrides, onChange }: PricingTableEditorPr
           </tr>
         </thead>
         <tbody>
-          {DEFAULT_PRICING.map((model) => (
-            <tr key={model.modelId} className="border-b border-gray-800/50">
-              <td className="py-2 pr-4 font-mono text-gray-300">
-                {model.displayName}
-              </td>
-              {PRICE_FIELDS.map((f) => {
-                const value = getEffectiveValue(model, f.key)
-                const changed = isOverridden(model.modelId, f.key)
-                return (
-                  <td key={f.key} className="px-1 py-1.5">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={value}
-                      onChange={(e) =>
-                        handleCellChange(model.modelId, f.key, e.target.value)
-                      }
-                      className={`w-20 rounded border px-2 py-1 text-right font-mono text-xs ${
-                        changed
-                          ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
-                          : 'border-gray-700 bg-gray-800 text-gray-300'
-                      } focus:border-brand-500 focus:outline-none`}
-                    />
+          {DEFAULT_PRICING.map((model, index) => {
+            const group = providerGroupOf(model.modelId)
+            const prevGroup =
+              index > 0 ? providerGroupOf(DEFAULT_PRICING[index - 1].modelId) : null
+            const showGroupHeader = group !== prevGroup
+            return (
+              <Fragment key={model.modelId}>
+                {showGroupHeader && (
+                  <tr>
+                    <td
+                      colSpan={1 + PRICE_FIELDS.length}
+                      className="pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500"
+                    >
+                      {GROUP_LABELS[group]}
+                    </td>
+                  </tr>
+                )}
+                <tr className="border-b border-gray-800/50">
+                  <td className="py-2 pr-4 font-mono text-gray-300">
+                    {model.displayName}
                   </td>
-                )
-              })}
-            </tr>
-          ))}
+                  {PRICE_FIELDS.map((f) => {
+                    const value = getEffectiveValue(model, f.key)
+                    const changed = isOverridden(model.modelId, f.key)
+                    return (
+                      <td key={f.key} className="px-1 py-1.5">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={value}
+                          onChange={(e) =>
+                            handleCellChange(model.modelId, f.key, e.target.value)
+                          }
+                          className={`w-20 rounded border px-2 py-1 text-right font-mono text-xs ${
+                            changed
+                              ? 'border-brand-500/50 bg-brand-500/10 text-brand-400'
+                              : 'border-gray-700 bg-gray-800 text-gray-300'
+                          } focus:border-brand-500 focus:outline-none`}
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              </Fragment>
+            )
+          })}
         </tbody>
       </table>
       <p className="mt-2 text-[10px] text-gray-600">

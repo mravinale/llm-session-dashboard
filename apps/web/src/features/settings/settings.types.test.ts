@@ -34,13 +34,22 @@ describe('normalizeModelId', () => {
     expect(normalizeModelId('claude-sonnet-4-2025051')).toBe('claude-sonnet-4-2025051') // 7 digits
     expect(normalizeModelId('claude-sonnet-4-202505144')).toBe('claude-sonnet-4-202505144') // 9 digits
   })
+
+  it('leaves OpenAI/Codex model ids untouched (no date-suffix to strip)', () => {
+    // The 8-digit-date-suffix stripping is a no-op for OpenAI ids, so Codex
+    // models resolve directly against DEFAULT_PRICING. Locks current behavior.
+    expect(normalizeModelId('gpt-5.5')).toBe('gpt-5.5')
+    expect(normalizeModelId('gpt-5-codex')).toBe('gpt-5-codex')
+    expect(normalizeModelId('gpt-5.3-codex')).toBe('gpt-5.3-codex')
+    expect(normalizeModelId('gpt-5.4')).toBe('gpt-5.4')
+    expect(normalizeModelId('gpt-5.2-codex')).toBe('gpt-5.2-codex')
+  })
 })
 
 describe('SettingsSchema', () => {
   it('validates correct input', () => {
     const input = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: {},
       updatedAt: '2025-01-01T00:00:00Z',
     }
@@ -60,41 +69,30 @@ describe('SettingsSchema', () => {
     const result = SettingsSchema.safeParse(input)
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.subscriptionTier).toBe('pro')
       expect(result.data.pricingOverrides).toEqual({})
     }
   })
 
-  it('rejects invalid tier', () => {
-    const input = {
+  it('strips unknown legacy keys so old settings files still load', () => {
+    // Old settings.json files may carry removed fields; a plain z.object (not
+    // .strict()) drops them on parse rather than failing.
+    const legacyKey = 'subscription' + 'Tier'
+    const input: Record<string, unknown> = {
       version: 1,
-      subscriptionTier: 'invalid-tier',
+      [legacyKey]: 'pro',
       pricingOverrides: {},
     }
 
     const result = SettingsSchema.safeParse(input)
-    expect(result.success).toBe(false)
-  })
-
-  it('accepts all valid tiers', () => {
-    const validTiers = ['free', 'pro', 'max-5x', 'max-20x', 'teams', 'enterprise', 'api']
-
-    for (const tier of validTiers) {
-      const input = {
-        version: 1,
-        subscriptionTier: tier,
-        pricingOverrides: {},
-      }
-
-      const result = SettingsSchema.safeParse(input)
-      expect(result.success).toBe(true)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(legacyKey in result.data).toBe(false)
     }
   })
 
   it('validates pricing overrides with positive numbers', () => {
     const input = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: {
         'claude-sonnet-4': {
           inputPerMTok: 5.0,
@@ -112,7 +110,6 @@ describe('SettingsSchema', () => {
   it('rejects negative pricing values', () => {
     const input = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: {
         'claude-sonnet-4': {
           inputPerMTok: -1.0,
@@ -130,7 +127,6 @@ describe('SettingsSchema', () => {
   it('accepts zero pricing values', () => {
     const input = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: {
         'free-model': {
           inputPerMTok: 0,
@@ -148,7 +144,6 @@ describe('SettingsSchema', () => {
   it('validates datetime format for updatedAt', () => {
     const validInput = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: {},
       updatedAt: '2025-01-01T12:30:45.123Z',
     }
@@ -158,7 +153,6 @@ describe('SettingsSchema', () => {
 
     const invalidInput = {
       version: 1,
-      subscriptionTier: 'pro',
       pricingOverrides: {},
       updatedAt: '2025-01-01', // Not a datetime string
     }
@@ -170,7 +164,6 @@ describe('SettingsSchema', () => {
   it('requires version to be exactly 1', () => {
     const input = {
       version: 2,
-      subscriptionTier: 'pro',
       pricingOverrides: {},
     }
 
